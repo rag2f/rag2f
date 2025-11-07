@@ -1,0 +1,40 @@
+import sys
+import os
+# Ensure `src` is on sys.path so imports like `from rag2f.core...` resolve during tests
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+SRC = os.path.join(ROOT, "src")
+if os.path.isdir(SRC):
+	sys.path.insert(0, SRC)
+sys.path.insert(0, ROOT)
+
+from rag2f.core.rag2f import RAG2F
+import pytest
+import pytest_asyncio
+from rich.traceback import install
+from rag2f.core.morpheus.morpheus import Morpheus  
+from tests.utils import PATH_MOCK 
+
+
+
+
+# Enable readable tracebacks in development / test environments.
+# Can be disabled with PYTEST_RICH=0
+if os.getenv("PYTEST_RICH", "1") == "1":
+	install(
+		show_locals=True,     # show local variables for each frame
+		width=None,           # use terminal width
+		word_wrap=True,       # wrap long lines
+		extra_lines=1,        # some context around lines
+		suppress=["/usr/lib/python3","site-packages"],  # hide "noisy" third-party frames
+	)
+
+
+@pytest_asyncio.fixture(scope="session")
+async def rag2f():
+    instance = await RAG2F.create(plugins_folder=f"{PATH_MOCK}/plugins/")
+    return instance
+
+@pytest_asyncio.fixture(scope="session")
+async def morpheus(rag2f):
+    print("Providing morpheus fixture")
+    return rag2f.morpheus

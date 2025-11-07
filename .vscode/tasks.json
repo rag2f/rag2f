@@ -1,0 +1,28 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+    {
+      "label": "Pytest: All",
+      "type": "shell",
+      "command": "pytest",
+      "problemMatcher": [],
+      "options": { "env": { "PYTEST_RICH": "1" } }
+    },
+    {
+      "label": "Pytest: Last failed",
+      "type": "shell",
+      "command": "pytest -vv -rA -lf",
+      "problemMatcher": [],
+      "options": { "env": { "PYTEST_RICH": "1" } }
+    },
+    {
+      "label": "Pytest: Coverage (xml + term)",
+      "type": "shell",
+      "command": "pytest -q --cov=. --cov-report term-missing --cov-report xml:coverage.xml",
+      "problemMatcher": [],
+      "options": { "env": { "PYTEST_RICH": "1" } }
+    }
+  ]
+}

@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rag2f"
+version = "0.1.0"
+description = "RAG2F - Retrieval Augmented Generation Framework"
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "GPL-3.0"}
+authors = [
+    {name = "Dario Chini", email = "dariochini@gmail.com"}
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "inflection",
+    "python-dotenv",
+    "pydantic",
+]
+
+[project.optional-dependencies]
+dev = [
+    "httpx",
+    "pytest",
+    "pytest-asyncio",
+    "rich",
+    "pytest-rich",
+    "pytest-icdiff",
+    "pytest-clarity",
+    "pytest-instafail",
+    "coverage",
+    "pytest-cov",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-s -vv -rA --color=yes --maxfail=3"
+python_files = "test_*.py"
+python_functions = "test_*"

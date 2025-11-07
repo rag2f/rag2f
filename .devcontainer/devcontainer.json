@@ -1,0 +1,32 @@
+{
+  "name": "rag2f Devcontainer",
+  "image": "python:3.12",
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "version": "latest"
+    },
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "version": "latest",
+      "moby": false
+    },
+    "ghcr.io/devcontainers/features/python:1": {
+    "version": "3.12"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-azuretools.vscode-docker",
+        "usernamehw.errorlens",
+        "ryanluker.vscode-coverage-gutters"
+      ]
+    }
+  },
+  "postCreateCommand": "pip install uv && uv pip install --system -e '.[dev]'",
+  "remoteUser": "vscode",
+  "containerEnv": {
+    "PYTHONPATH": "/workspaces/rag2f/src",
+    "PYTEST_RICH": "1"
+  }
+}
