@@ -19,8 +19,6 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-    "fastapi",
-    "uvicorn",
     "inflection",
     "python-dotenv",
     "pydantic",
@@ -28,7 +26,6 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "httpx",
     "pytest",
     "pytest-asyncio",
     "rich",
