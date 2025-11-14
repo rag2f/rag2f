@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 
 from rag2f.core.johnny5 import Johnny5
 from rag2f.core.morpheus.morpheus import Morpheus
+from rag2f.core.protocols import Embedder
 
 logger = logging.getLogger(__name__)
 load_dotenv()
@@ -24,6 +25,8 @@ class RAG2F:
     def __init__(self, plugins_folder: str | None = None):
         self.johnny = Johnny5(rag2f_instance=self)
         self.morpheus = Morpheus(plugins_folder=plugins_folder)
+        # Dizionario che mappa stringhe a oggetti che implementano Embedder
+        self.embedder_registry: dict[str, Embedder] = {}
         logger.debug("RAG2F instance created.")
 
     @classmethod
@@ -31,8 +34,17 @@ class RAG2F:
         """Factory method per creare e inizializzare RAG2F."""
         instance = cls(plugins_folder=plugins_folder)
         await instance.morpheus.find_plugins()
+        await instance._bootstrap_embedders()
         return instance
 
+    async def _bootstrap_embedders(self) -> None:
+        """Bootstrap degli embedder caricati dai plugin.
+        
+        Popola embedder_registry con gli embedder forniti dai plugin
+        tramite il meccanismo di hook.
+        """
+        logger.debug("Bootstrapping embedders from loaded plugins...")
+        self.embedder_registry = self.morpheus.execute_hook("rag2f_bootstrap_embedders",self.embedder_registry, rag2f=self)
 
     def input_text_foreground(self, text: str) -> str:
         processed = self.johnny.handle_text_foreground(text)

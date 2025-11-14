@@ -13,5 +13,6 @@ async def test_hook_discovery(morpheus):
 
 def test_hook_priority_execution(morpheus):
     message="Priorities:"
-    out = morpheus.execute_hook("before_cat_sends_message", message, rag2f=None)
+    out = morpheus.execute_hook("morpheus_test_hook_message", message, rag2f=None)
     assert out == "Priorities: priority 3 priority 2"
+

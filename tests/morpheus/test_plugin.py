@@ -51,7 +51,7 @@ def test_create_plugin(plugin):
     assert "Description not found" in plugin.manifest.description
 
     # hooks
-    assert len(plugin.hooks) == 2
+    assert len(plugin.hooks) == get_mock_plugin_info()["hooks"]
     assert len(plugin.overrides) == 1
 
     assert not hasattr(plugin, "custom_deactivation_executed")
@@ -64,11 +64,12 @@ def test_activate_plugin(plugin):
         assert isinstance(hook, PillHook)
         assert hook.plugin_id == "mock_plugin"
         assert hook.name in [
-            "before_cat_sends_message"
+            "morpheus_test_hook_message",
+            "rag2f_bootstrap_embedders"
         ]
         assert isfunction(hook.function)
 
-        if hook.name == "before_cat_sends_message":
+        if hook.name == "morpheus_test_hook_message":
             assert hook.priority > 1
         else:
             assert hook.priority == 1  # default priority
