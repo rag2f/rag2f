@@ -197,128 +197,9 @@ class Plugin:
         return PluginManifest(**json_file_data)
 
     def _install_requirements(self):
-        req_file = os.path.join(self.path, "requirements.txt")
-
-
-         # Early return if no requirements file exists
-        if not os.path.exists(req_file):
-            logger.debug(f"No requirements.txt found for plugin {self.id}")
-            return
-
-        # Detect available package managers
-        uv_available = shutil.which("uv") is not None
-        pip_available = shutil.which("pip3") is not None or shutil.which("pip") is not None
-        
-        if not uv_available and not pip_available:
-            logger.warning(f"No package manager found (uv or pip). Skipping requirements installation for plugin {self.id}")
-            return
-
-        # Get installed packages
-        try:
-            installed_packages = {pkg.name.lower() for pkg in importlib.metadata.distributions()}
-        except Exception as e:
-            logger.error(f"Error getting installed packages: {e}")
-            installed_packages = set()
-
-        # Parse and filter requirements
-        filtered_requirements = []
-
-        logger.info(f"Checking requirements for plugin {self.id}")
-        
-        try:
-            with open(req_file, "r") as read_file:
-                requirements = read_file.readlines()
-
-            for req in requirements:
-                req = req.strip()
-                
-                # Skip empty lines and comments
-                if not req or req.startswith("#"):
-                    continue
-                
-                try:
-                    # Parse requirement
-                    parsed_req = Requirement(req)
-                    package_name = parsed_req.name.lower()
-                    
-                    # Check if package is already installed
-                    if package_name not in installed_packages:
-                        logger.debug(f"\t {package_name} needs to be installed")
-                        filtered_requirements.append(req)
-                    else:
-                        logger.debug(f"\t {package_name} is already installed")
-                        
-                except Exception as e:
-                    logger.warning(f"Invalid requirement '{req}': {e}")
-                    continue
-
-        except Exception as e:
-            logger.error(f"Error reading requirements file for plugin {self.id}: {e}")
-            return
-
-        # No requirements to install
-        if len(filtered_requirements) == 0:
-            logger.debug(f"All requirements already satisfied for plugin {self.id}")
-            return
-
-        # Create temporary requirements file
-        tmp_file = None
-        try:
-            with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as tmp:
-                tmp.write("\n".join(filtered_requirements))
-                tmp.flush()
-                tmp_file = tmp.name
-
-            # Check if we're in a virtual environment
-            in_venv = (
-                hasattr(sys, 'real_prefix') or  # virtualenv
-                (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix) or  # venv
-                os.environ.get('VIRTUAL_ENV') is not None  # environment variable
-            )
-            
-            # Choose package manager and build command
-            if uv_available:
-                install_cmd = ["uv", "pip", "install", "--no-cache-dir", "-r", tmp_file]
-                # If not in a virtual environment, add --system flag for uv
-                if not in_venv:
-                    install_cmd.insert(3, "--system")  # Insert after 'install'
-                    logger.debug(f"Using uv with --system flag (no virtual environment detected) for plugin {self.id}")
-                else:
-                    logger.debug(f"Using uv to install requirements for plugin {self.id}")
-            else:
-                pip_cmd = "pip3" if shutil.which("pip3") else "pip"
-                install_cmd = [pip_cmd, "install", "--no-cache-dir", "-r", tmp_file]
-                logger.debug(f"Using {pip_cmd} to install requirements for plugin {self.id}")
-
-            # Install requirements
-            logger.info(f"Installing requirements for plugin {self.id}")
-            result = subprocess.run(
-                install_cmd,
-                check=True,
-                capture_output=True,
-                text=True
-            )
-            logger.debug(f"Installation output: {result.stdout}")
-            logger.info(f"Successfully installed requirements for plugin {self.id}")
-
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Error while installing plugin {self.id} requirements: {e}")
-            logger.error(f"stderr: {e.stderr if hasattr(e, 'stderr') else 'N/A'}")
-            raise           
-            
-            
-        except Exception as e:
-            logger.error(f"Unexpected error during requirements installation for plugin {self.id}: {e}")
-            raise
-            
-        finally:
-            # Clean up temporary file
-            if tmp_file and os.path.exists(tmp_file):
-                try:
-                    os.unlink(tmp_file)
-                except Exception as e:
-                    logger.warning(f"Failed to remove temporary file {tmp_file}: {e}")
-
+        """Instance method that calls the static method."""
+        self.install_requirements(self.id, self.path)
+    
     # lists of hooks
     def _load_decorated_functions(self):
         hooks = []
@@ -380,6 +261,129 @@ class Plugin:
     @staticmethod
     def _is_rag2f_plugin_override(obj):
         return isinstance(obj, PillPluginDecorator)
+    
+    @staticmethod
+    def install_requirements(plugin_id: str, plugin_path: str):
+        """Install requirements for a plugin. Can be called statically."""
+        req_file = os.path.join(plugin_path, "requirements.txt")
+
+        # Early return if no requirements file exists
+        if not os.path.exists(req_file):
+            logger.debug(f"No requirements.txt found for plugin {plugin_id}")
+            return
+
+        # Detect available package managers
+        uv_available = shutil.which("uv") is not None
+        pip_available = shutil.which("pip3") is not None or shutil.which("pip") is not None
+        
+        if not uv_available and not pip_available:
+            logger.warning(f"No package manager found (uv or pip). Skipping requirements installation for plugin {plugin_id}")
+            return
+
+        # Get installed packages
+        try:
+            installed_packages = {pkg.name.lower() for pkg in importlib.metadata.distributions()}
+        except Exception as e:
+            logger.error(f"Error getting installed packages: {e}")
+            installed_packages = set()
+
+        # Parse and filter requirements
+        filtered_requirements = []
+
+        logger.info(f"Checking requirements for plugin {plugin_id}")
+        
+        try:
+            with open(req_file, "r") as read_file:
+                requirements = read_file.readlines()
+
+            for req in requirements:
+                req = req.strip()
+                
+                # Skip empty lines and comments
+                if not req or req.startswith("#"):
+                    continue
+                
+                try:
+                    # Parse requirement
+                    parsed_req = Requirement(req)
+                    package_name = parsed_req.name.lower()
+                    
+                    # Check if package is already installed
+                    if package_name not in installed_packages:
+                        logger.debug(f"\t {package_name} needs to be installed")
+                        filtered_requirements.append(req)
+                    else:
+                        logger.debug(f"\t {package_name} is already installed")
+                        
+                except Exception as e:
+                    logger.warning(f"Invalid requirement '{req}': {e}")
+                    continue
+
+        except Exception as e:
+            logger.error(f"Error reading requirements file for plugin {plugin_id}: {e}")
+            return
+
+        # No requirements to install
+        if len(filtered_requirements) == 0:
+            logger.debug(f"All requirements already satisfied for plugin {plugin_id}")
+            return
+
+        # Create temporary requirements file
+        tmp_file = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as tmp:
+                tmp.write("\n".join(filtered_requirements))
+                tmp.flush()
+                tmp_file = tmp.name
+
+            # Check if we're in a virtual environment
+            in_venv = (
+                hasattr(sys, 'real_prefix') or  # virtualenv
+                (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix) or  # venv
+                os.environ.get('VIRTUAL_ENV') is not None  # environment variable
+            )
+            
+            # Choose package manager and build command
+            if uv_available:
+                install_cmd = ["uv", "pip", "install", "--no-cache-dir", "-r", tmp_file]
+                # If not in a virtual environment, add --system flag for uv
+                if not in_venv:
+                    install_cmd.insert(3, "--system")  # Insert after 'install'
+                    logger.debug(f"Using uv with --system flag (no virtual environment detected) for plugin {plugin_id}")
+                else:
+                    logger.debug(f"Using uv to install requirements for plugin {plugin_id}")
+            else:
+                pip_cmd = "pip3" if shutil.which("pip3") else "pip"
+                install_cmd = [pip_cmd, "install", "--no-cache-dir", "-r", tmp_file]
+                logger.debug(f"Using {pip_cmd} to install requirements for plugin {plugin_id}")
+
+            # Install requirements
+            logger.info(f"Installing requirements for plugin {plugin_id}")
+            result = subprocess.run(
+                install_cmd,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            logger.debug(f"Installation output: {result.stdout}")
+            logger.info(f"Successfully installed requirements for plugin {plugin_id}")
+
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Error while installing plugin {plugin_id} requirements: {e}")
+            logger.error(f"stderr: {e.stderr if hasattr(e, 'stderr') else 'N/A'}")
+            raise           
+            
+        except Exception as e:
+            logger.error(f"Unexpected error during requirements installation for plugin {plugin_id}: {e}")
+            raise
+            
+        finally:
+            # Clean up temporary file
+            if tmp_file and os.path.exists(tmp_file):
+                try:
+                    os.unlink(tmp_file)
+                except Exception as e:
+                    logger.warning(f"Failed to remove temporary file {tmp_file}: {e}")
     
     @property
     def path(self):

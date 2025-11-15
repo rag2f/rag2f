@@ -25,11 +25,9 @@ class AzureOpenAIEmbedder:
         size: int,
         timeout: float = 30.0,
         max_retries: int = 2,
-        on_mismatch: str = "error",
     ) -> None:
         self._size = size
         self._deployment = deployment
-        self._on_mismatch = on_mismatch
         self._client = AzureOpenAI(
             azure_endpoint=azure_endpoint,
             api_key=api_key,
@@ -42,8 +40,6 @@ class AzureOpenAIEmbedder:
     def size(self) -> int:
         return self._size
 
-    def getEmbedding(self, text: str, *, normalize: bool = False) -> Vector:
+    def getEmbedding(self, text: str) -> Vector:
         resp = self._client.embeddings.create(model=self._deployment, input=text)
-        vec = list(resp.data[0].embedding)
-        vec = ensure_length(vec, self._size, self._on_mismatch)
-        return l2_normalize(vec) if normalize else vec
+        return list(resp.data[0].embedding)

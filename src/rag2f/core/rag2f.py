@@ -32,7 +32,7 @@ class RAG2F:
         await instance._bootstrap_embedders()
         return instance
 
-    async def _bootstrap_embedders(self, *, allow_override: bool = True) -> None:
+    async def _bootstrap_embedders(self, *, allow_override: bool = False) -> None:
         """Bootstrap embedders loaded from plugins.
 
         Populates embedder_registry with embedders provided by plugins
