@@ -1,8 +1,6 @@
 import logging
 from typing import Optional
-
 from dotenv import load_dotenv
-
 from rag2f.core.johnny5 import Johnny5
 from rag2f.core.morpheus.morpheus import Morpheus
 from rag2f.core.protocols import Embedder
@@ -10,41 +8,75 @@ from rag2f.core.protocols import Embedder
 logger = logging.getLogger(__name__)
 load_dotenv()
 
-
 class RAG2F:
     """Core facade for the RAG2F application.
 
     RAG2F delegates input handling to a Johnny5 instance. Johnny5 is a small
     helper class with deterministic, side-effect-free methods which makes unit
     testing of input handling easier.
-    
     Each RAG2F instance maintains its own unique Morpheus instance for
     orchestrating knowledge transformations.
     """
-
     def __init__(self, plugins_folder: str | None = None):
         self.johnny = Johnny5(rag2f_instance=self)
         self.morpheus = Morpheus(plugins_folder=plugins_folder)
-        # Dizionario che mappa stringhe a oggetti che implementano Embedder
+        # Dictionary mapping strings to objects implementing Embedder
         self.embedder_registry: dict[str, Embedder] = {}
         logger.debug("RAG2F instance created.")
 
     @classmethod
     async def create(cls, plugins_folder: str | None = None):
-        """Factory method per creare e inizializzare RAG2F."""
+        """Factory method to create and initialize RAG2F."""
         instance = cls(plugins_folder=plugins_folder)
         await instance.morpheus.find_plugins()
         await instance._bootstrap_embedders()
         return instance
 
-    async def _bootstrap_embedders(self) -> None:
-        """Bootstrap degli embedder caricati dai plugin.
-        
-        Popola embedder_registry con gli embedder forniti dai plugin
-        tramite il meccanismo di hook.
+    async def _bootstrap_embedders(self, *, allow_override: bool = True) -> None:
+        """Bootstrap embedders loaded from plugins.
+
+        Populates embedder_registry with embedders provided by plugins
+        via the hook mechanism.
         """
         logger.debug("Bootstrapping embedders from loaded plugins...")
-        self.embedder_registry = self.morpheus.execute_hook("rag2f_bootstrap_embedders",self.embedder_registry, rag2f=self)
+        embedders = self.morpheus.execute_hook(
+            "rag2f_bootstrap_embedders",
+            self.embedder_registry,
+            rag2f=self,
+        )
+        # Normalize: accept None => {} and check for mapping
+        if embedders is None:
+            embedders = {}
+        if not hasattr(embedders, "items"):
+            raise TypeError(
+                "The 'rag2f_bootstrap_embedders' hook must return a mapping (e.g., dict)."
+            )
+        # Copy-on-write: work on a copy, then swap the reference
+        new_registry: dict[str, Embedder] = dict(self.embedder_registry)
+        # Single pass: validate (key/value) + override policy + insert
+        for key, embedder in embedders.items():
+            # Validate key
+            if not isinstance(key, str) or not key.strip():
+                raise ValueError(f"Invalid embedder key: {key!r}")
+            # Protocol compliance
+            if not isinstance(embedder, Embedder):
+                raise TypeError(
+                    f"Embedder '{key}' does not implement the Embedder protocol"
+                )
+            # Override policy
+            if not allow_override and key in new_registry:
+                raise ValueError(
+                    f"Override not allowed for already present key: {key!r}"
+                )
+            # Insert into the new copy
+            new_registry[key] = embedder
+        # Atomic swap of the reference (readers never see partial states)
+        self.embedder_registry = new_registry
+        logger.debug(
+            "Bootstrapping embedders completed. Registry size=%d (+%d from hook).",
+            len(self.embedder_registry),
+            len(embedders),
+        )
 
     def input_text_foreground(self, text: str) -> str:
         processed = self.johnny.handle_text_foreground(text)
