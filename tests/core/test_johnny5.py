@@ -1,6 +1,6 @@
 import pytest
 
-from rag2f.core.johnny5 import Johnny5
+from rag2f.core.johnny5.johnny5 import Johnny5
 
 
 def test_handle_text_basic():

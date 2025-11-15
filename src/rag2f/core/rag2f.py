@@ -1,7 +1,7 @@
 import logging
 from typing import Optional
 from dotenv import load_dotenv
-from rag2f.core.johnny5 import Johnny5
+from rag2f.core.johnny5.johnny5 import Johnny5
 from rag2f.core.morpheus.morpheus import Morpheus
 from rag2f.core.protocols import Embedder
 
