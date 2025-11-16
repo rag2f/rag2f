@@ -16,7 +16,3 @@ def rag2f_bootstrap_embedders(embedder_registry, rag2f):
     """Mock hook che registra un embedder di test nel registry usando la funzione register."""
     register(embedder_registry, "mock_embedder", MockEmbedder())
     return embedder_registry
-
-
-
-   

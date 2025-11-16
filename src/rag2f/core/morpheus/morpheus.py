@@ -132,22 +132,103 @@ class Morpheus:
         # phone has passed through all hooks. Return final output
         return phone
 
-    def get_plugin(self):
-        """Get plugin object (used from within a plugin)"""
-
-        # who's calling?
-        calling_frame = inspect.currentframe().f_back
-        # Get the module associated with the frame
-        module = inspect.getmodule(calling_frame)
-
-        plugin_id = module.rag2f_bootstrap_embedders.plugin_id
-        # Get the absolute and then relative path of the calling module's file
-        abs_path = inspect.getabsfile(module)
+    def get_plugin_id(self):
+        """Get plugin object (used from within a plugin).
         
-        # Replace the root and get only the current plugin folder
-        plugin_suffix = os.path.normpath(
-            abs_path.replace(utils.get_default_plugins_path() + "/", "")
-        )
-        # Plugin's folder
-        name = plugin_suffix.split("/")[0]
-        return self.plugins[name]
+        This method is meant to be called from within hook functions decorated with @hook.
+        It inspects the calling stack to determine which plugin is executing and returns
+        the corresponding Plugin object.
+        
+        Supports arbitrary call chains: hook → helper_func → get_plugin_id() will correctly
+        identify the @hook decorator even if called indirectly.
+        
+        Returns:
+            Plugin: The Plugin object of the calling hook function.
+            
+        Raises:
+            RuntimeError: If called from a non-hook context or from outside a valid plugin.
+        """
+        try:
+            stack = inspect.stack()
+            
+            # Walk the stack from caller upwards (skip frame 0 which is get_plugin_id itself)
+            # to find the first frame containing a function decorated with @hook
+            for frame_info in stack[1:]:
+                module = inspect.getmodule(frame_info.frame)
+                if module is None:
+                    continue
+                
+                func_name = frame_info.function
+                plugin_id = self._extract_plugin_id_from_hook(module, func_name)
+                
+                if plugin_id is not None:
+                    # Found a @hook in the call stack
+                    if plugin_id not in self.plugins:
+                        raise RuntimeError(
+                            f"Plugin '{plugin_id}' not found in loaded plugins. "
+                            f"Available plugins: {list(self.plugins.keys())}"
+                        )
+                    
+                    logger.debug(
+                        f"get_plugin_id() resolved to plugin '{plugin_id}' via @hook '{func_name}'"
+                    )
+                    return self.plugins[plugin_id]
+            
+            # No @hook found in the entire call stack
+            raise RuntimeError(
+                "No @hook decorated function found in the call stack. "
+                "This method must be called from within or through a @hook decorated function in a plugin."
+            )
+        
+        except RuntimeError:
+            raise
+        except Exception as e:
+            logger.error(f"Error in get_plugin_id: {type(e).__name__}: {e}", exc_info=True)
+            raise RuntimeError(f"Failed to determine plugin: {e}") from e
+
+    def _extract_plugin_id_from_hook(self, module, hook_name: str) -> str | None:
+        """Extract plugin_id from a specific hook in a module.
+        
+        Looks up a specific hook by name and retrieves its plugin_id.
+        This is more efficient than searching all attributes since we know
+        exactly which hook we're looking for.
+        
+        Args:
+            module: The module object to inspect.
+            hook_name: The name of the hook function to find.
+            
+        Returns:
+            str: The plugin_id if the hook is found and is a valid PillHook, None otherwise.
+        """
+        try:
+            # Try to get the attribute directly by name
+            attr = getattr(module, hook_name, None)
+            
+            if attr is None:
+                logger.debug(f"Attribute '{hook_name}' not found in module {module.__name__}")
+                return None
+            
+            # Check if this attribute is a PillHook instance
+            if isinstance(attr, PillHook):
+                # Verify it has a valid plugin_id set
+                if attr.plugin_id is not None and isinstance(attr.plugin_id, str):
+                    logger.debug(
+                        f"Found hook '{attr.name}' with plugin_id '{attr.plugin_id}' in module {module.__name__}"
+                    )
+                    return attr.plugin_id
+                else:
+                    logger.warning(
+                        f"Hook '{hook_name}' in module {module.__name__} has invalid plugin_id: {attr.plugin_id}"
+                    )
+                    return None
+            else:
+                logger.debug(
+                    f"Attribute '{hook_name}' in module {module.__name__} is not a PillHook, "
+                    f"it's a {type(attr).__name__}"
+                )
+                return None
+                
+        except Exception as e:
+            logger.debug(f"Error accessing hook '{hook_name}' in module {module.__name__}: {e}")
+            return None
+        
