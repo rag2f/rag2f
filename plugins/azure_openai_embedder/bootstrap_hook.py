@@ -1,7 +1,3 @@
-"""Bootstrap hook for Azure OpenAI Embedder plugin.
-
-This hook demonstrates how to use Spock configuration in a plugin.
-"""
 
 import logging
 from rag2f.core.morpheus.decorators import hook

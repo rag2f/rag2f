@@ -7,11 +7,8 @@ from inspect import isfunction
 
 from rag2f.core.morpheus.plugin_manifest import PluginManifest
 from tests.utils import get_mock_plugin_info
-
-
 from rag2f.core.morpheus.plugin import Plugin
 from rag2f.core.morpheus.decorators import PillHook
-from rag2f.core.utils import get_plugins_path
 from tests.utils import PATH_MOCK 
 
 
@@ -60,9 +57,14 @@ def test_create_plugin(plugin):
 def test_activate_plugin(plugin):
     # hooks
     assert len(plugin.hooks) == get_mock_plugin_info()["hooks"]
+    # Check that plugin._id is set and matches plugin.id
+    assert hasattr(plugin, "_id")
+    assert plugin._id == plugin.id
     for hook in plugin.hooks:
         assert isinstance(hook, PillHook)
-        assert hook.plugin_id == "mock_plugin"
+        # Check that hook.plugin_id is set and matches plugin._id
+        assert hasattr(hook, "plugin_id")
+        assert hook.plugin_id == plugin._id
         assert hook.name in [
             "morpheus_test_hook_message",
             "rag2f_bootstrap_embedders"

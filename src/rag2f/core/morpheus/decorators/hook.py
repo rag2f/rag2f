@@ -10,7 +10,7 @@ class PillHook:
         self.plugin_id = None
 
     def __repr__(self) -> str:
-        return f"PillHook(plugin={self.plugin_id}, name={self.name}, priority={self.priority})"
+        return f"PillHook(plugin_id={self.plugin_id}, name={self.name}, priority={self.priority})"
 
 
 # @hook decorator. Any function in a plugin decorated by @hook and named properly (among list of available hooks) is used by the RAG2F core

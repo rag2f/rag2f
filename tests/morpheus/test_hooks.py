@@ -7,9 +7,15 @@ from rag2f.core.morpheus.decorators.hook import PillHook
 async def test_hook_discovery(morpheus):
     mock_plugin_hooks = morpheus.plugins["mock_plugin"].hooks
     assert len(mock_plugin_hooks) > 0
+    plugin = morpheus.plugins["mock_plugin"]
+    # Check that plugin._id is set and matches plugin.id
+    assert hasattr(plugin, "_id")
+    assert plugin._id == plugin.id
     for h in mock_plugin_hooks:
         assert isinstance(h, PillHook)
-        assert h.plugin_id == "mock_plugin"
+        # Check that hook.plugin_id is set and matches plugin._id
+        assert hasattr(h, "plugin_id")
+        assert h.plugin_id == plugin._id
 
 def test_hook_priority_execution(morpheus):
     message="Priorities:"

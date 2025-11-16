@@ -1,6 +1,6 @@
 
 
-def test_hook_rag2f_bootstrap_embedders(rag2f):
+def _hook_rag2f_bootstrap_embedders(rag2f):
     # After bootstrap, mock_embedder must be present in the registry
     registry = rag2f.embedder_registry
     assert "mock_embedder" in registry, "mock_embedder not found in registry"

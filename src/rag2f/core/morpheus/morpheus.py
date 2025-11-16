@@ -23,7 +23,7 @@ class Morpheus:
     def __init__(self, plugins_folder: str | None = None):
         self.plugins: Dict[str, Plugin] = {}  # plugins dictionary
         self.hooks: Dict[str, List[PillHook]] = {}  # hooks registered in the system
-        self.plugins_folder = plugins_folder if plugins_folder is not None else utils.get_plugins_path()
+        self.plugins_folder = plugins_folder if plugins_folder is not None else utils.get_default_plugins_path()
         
         # callback out of the hook system to notify other components about a refresh
         self.on_refresh_callbacks: List[Callable] = []
@@ -131,3 +131,23 @@ class Morpheus:
 
         # phone has passed through all hooks. Return final output
         return phone
+
+    def get_plugin(self):
+        """Get plugin object (used from within a plugin)"""
+
+        # who's calling?
+        calling_frame = inspect.currentframe().f_back
+        # Get the module associated with the frame
+        module = inspect.getmodule(calling_frame)
+
+        plugin_id = module.rag2f_bootstrap_embedders.plugin_id
+        # Get the absolute and then relative path of the calling module's file
+        abs_path = inspect.getabsfile(module)
+        
+        # Replace the root and get only the current plugin folder
+        plugin_suffix = os.path.normpath(
+            abs_path.replace(utils.get_default_plugins_path() + "/", "")
+        )
+        # Plugin's folder
+        name = plugin_suffix.split("/")[0]
+        return self.plugins[name]

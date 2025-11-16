@@ -226,7 +226,7 @@ class Plugin:
                 logger.warning(self.plugin_specific_error_message())
 
         # clean and enrich instances
-        self._hooks = list(map(self._clean_hook, hooks))
+        self._hooks = list(map(self._clean_and_enrich_hook, hooks))
         self._plugin_overrides = {override.name: override for override in list(map(self._clean_plugin_override, plugin_overrides))}
 
         
@@ -240,7 +240,7 @@ class Plugin:
         return f"Error in {name} plugin, contact the creator"
 
 
-    def _clean_hook(self, hook: PillHook):
+    def _clean_and_enrich_hook(self, hook: PillHook):
         # getmembers returns a tuple
         h = hook[1]
         h.plugin_id = self._id
