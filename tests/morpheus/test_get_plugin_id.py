@@ -107,7 +107,7 @@ def test_get_plugin_id_with_no_hook_in_stack(morpheus_instance):
     # Mock inspect.stack to return empty/minimal stack
     with patch("inspect.stack", return_value=[]):
         with pytest.raises(RuntimeError, match="No @hook decorated function found in the call stack"):
-            morpheus_instance.get_plugin_id()
+            morpheus_instance.self_plugin()
 
 
 def test_get_plugin_id_with_unknown_plugin_in_stack(morpheus_instance):
@@ -127,7 +127,7 @@ def test_get_plugin_id_with_unknown_plugin_in_stack(morpheus_instance):
                 return_value="unknown_plugin"
             ):
                 with pytest.raises(RuntimeError, match="Plugin 'unknown_plugin' not found"):
-                    morpheus_instance.get_plugin_id()
+                    morpheus_instance.self_plugin()
 
 
 def test_get_plugin_id_success_finds_hook_in_stack(morpheus_instance):
@@ -150,7 +150,7 @@ def test_get_plugin_id_success_finds_hook_in_stack(morpheus_instance):
                 "_extract_plugin_id_from_hook",
                 return_value="test_plugin"
             ):
-                result = morpheus_instance.get_plugin_id()
+                result = morpheus_instance.self_plugin()
     
     assert result is mock_plugin
 
@@ -196,7 +196,7 @@ def test_get_plugin_id_walks_stack_until_hook_found(morpheus_instance):
     with patch("inspect.stack", return_value=frames):
         with patch("inspect.getmodule", return_value=mock_module):
             with patch.object(morpheus_instance, "_extract_plugin_id_from_hook", side_effect=extract_side_effect):
-                result = morpheus_instance.get_plugin_id()
+                result = morpheus_instance.self_plugin()
     
     assert result is mock_plugin
     # Should have checked helper_func, another_helper, and my_hook (found at third)
@@ -211,4 +211,4 @@ def test_get_plugin_id_general_exception_handling(morpheus_instance):
     # So we need to test with a different exception type that gets wrapped
     with patch("inspect.stack", side_effect=ValueError("Unexpected value error")):
         with pytest.raises(RuntimeError, match="Failed to determine plugin"):
-            morpheus_instance.get_plugin_id()
+            morpheus_instance.self_plugin()
