@@ -1,5 +1,5 @@
 import logging
-from typing import Optional
+from typing import Any, Optional, Dict
 from dotenv import load_dotenv
 from rag2f.core.johnny5.johnny5 import Johnny5
 from rag2f.core.morpheus.morpheus import Morpheus
@@ -27,7 +27,7 @@ class RAG2F:
         logger.debug("RAG2F instance created.")
 
     @classmethod
-    async def create(cls, plugins_folder: str | None = None, config_path: str | None = None):
+    async def create(cls, *, plugins_folder: str | None = None, config_path: str | None = None, config: Optional[Dict[str, Any]] = None):
         """Factory method to create and initialize RAG2F.
         
         Args:
@@ -36,14 +36,14 @@ class RAG2F:
         """
         instance = cls(plugins_folder=plugins_folder, config_path=config_path)
         # Load configuration first
-        instance.spock.load()
+        instance.spock.load(config=config)
         # Then discover and activate plugins
         await instance.morpheus.find_plugins()
         # Bootstrap embedders from plugins
         await instance._bootstrap_embedders()
         return instance
 
-    async def _bootstrap_embedders(self, *, allow_override: bool = False) -> None:
+    async def _bootstrap_embedders(self) -> None:
         """Bootstrap embedders loaded from plugins.
 
         Populates embedder_registry with embedders provided by plugins
@@ -75,7 +75,7 @@ class RAG2F:
                     f"Embedder '{key}' does not implement the Embedder protocol"
                 )
             # Override policy
-            if not allow_override and key in new_registry:
+            if key in new_registry:
                 raise ValueError(
                     f"Override not allowed for already present key: {key!r}"
                 )

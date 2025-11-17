@@ -45,35 +45,44 @@ class Spock:
                         environment variables will be used.
         """
         self._config_path = config_path
-        self._config: Dict[str, Any] = {
-            "rag2f": {},
-            "plugins": {}
-        }
+        self._config= self.default_config()
         self._loaded = False
         logger.debug("Spock instance created with config_path=%s", config_path)
 
-    def load(self) -> None:
-        """Load configuration from JSON file and environment variables.
+    @staticmethod
+    def default_config() -> Dict[str, Any]:
+        """Return a new default config dict each time."""
+        return {
+            "rag2f": {},
+            "plugins": {}
+        }
+
+    def load(self, config: Optional[Dict[str, Any]] = None) -> None:
+        """Load configuration from JSON file, environment variables, or provided config.
+        
+        Args:
+            config: Optional config dict to use as base. If None, uses default_config().
         
         Priority (highest to lowest):
         1. Environment variables
         2. JSON file
-        3. Default values
+        3. Provided config (if any)
+        4. Default values
         """
         if self._loaded:
             logger.debug("Configuration already loaded, skipping reload")
             return
 
-        # Start with empty config
-        self._config = {
-            "rag2f": {},
-            "plugins": {}
-        }
+        self._config = self.default_config()       
+            
 
         # Load from JSON file if provided
         if self._config_path:
             self._load_from_json()
-
+        
+        if config is not None:
+            self._load_from_config_object(config)
+            
         # Override/merge with environment variables
         self._load_from_env()
 
@@ -118,6 +127,23 @@ class Spock:
         except Exception as e:
             logger.error("Error loading config file %s: %s", self._config_path, e)
             raise
+
+    def _load_from_config_object(self, config: Dict[str, Any]) -> None:
+            """Validate and merge a config dict into self._config, like for JSON."""
+            if not isinstance(config, dict):
+                raise ValueError("Configuration must be a dict")
+
+            # Merge rag2f settings
+            if "rag2f" in config:
+                if not isinstance(config["rag2f"], dict):
+                    raise ValueError("'rag2f' section must be a dict")
+                self._config["rag2f"] = deepcopy(config["rag2f"])
+
+            # Merge plugin settings
+            if "plugins" in config:
+                if not isinstance(config["plugins"], dict):
+                    raise ValueError("'plugins' section must be a dict")
+                self._config["plugins"] = deepcopy(config["plugins"])
 
     def _load_from_env(self) -> None:
         """Load configuration from environment variables.

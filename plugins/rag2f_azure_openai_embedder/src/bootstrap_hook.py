@@ -1,6 +1,7 @@
 
 import logging
-from rag2f.core.morpheus.decorators import hook
+from rag2f.core.morpheus.decorators import hook,PillHook
+from .plugin_context import set_plugin_id, get_plugin_id
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +49,13 @@ def bootstrap_azure_openai_embedder(embedders_registry, rag2f):
     Returns:
         Updated embedders_registry with Azure OpenAI embedder
     """
-    plugin_id = "azure_openai_embedder"
-    
+    # fast specific method to get the plugin_id, but there is another more genric
+    # current_func = bootstrap_azure_openai_embedder
+    # if isinstance(current_func, PillHook):
+    #     plugin_id_0 = current_func.plugin_id
+
+    plugin_id = get_plugin_id(rag2f)
+
     # Check if configuration exists for this plugin
     config = rag2f.spock.get_plugin_config(plugin_id)
     
@@ -64,20 +70,13 @@ def bootstrap_azure_openai_embedder(embedders_registry, rag2f):
     
     try:
         # Import embedder (lazy import to avoid issues if dependencies not installed)
-        from plugins.azure_openai_embedder.embedder import AzureOpenAIEmbedder
-        
+        from .embedder import AzureOpenAIEmbedder
         # Initialize embedder with Spock configuration
-        embedder = AzureOpenAIEmbedder(rag2f=rag2f, plugin_id=plugin_id)
-        
-        # Register embedder with a key
-        # You can use the key from config or a default one
-        embedder_key = rag2f.spock.get_rag2f_config("embedder_standard", default="azure_openai")
-        
-        embedders_registry[embedder_key] = embedder
-        
+        embedder = AzureOpenAIEmbedder(config)                
+        embedders_registry[plugin_id] = embedder        
         logger.info(
             "Azure OpenAI embedder registered as '%s' (size=%d, deployment=%s)",
-            embedder_key,
+            plugin_id,
             embedder.size,
             config.get("deployment")
         )

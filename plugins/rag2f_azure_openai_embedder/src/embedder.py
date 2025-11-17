@@ -34,36 +34,22 @@ class AzureOpenAIEmbedder:
       RAG2F__PLUGINS__AZURE_OPENAI_EMBEDDER__SIZE=1536
     """
 
-    def __init__(self, rag2f, plugin_id: str = "azure_openai_embedder"):
-        """Initialize the embedder using Spock configuration.
+    def __init__(self, config: dict):
+        """Initialize the embedder using a configuration dictionary.
         
         Args:
-            rag2f: RAG2F instance providing access to Spock configuration
-            plugin_id: Plugin identifier used to retrieve configuration
+            config: Dictionary containing configuration parameters
         """
-        self._rag2f = rag2f
-        self._plugin_id = plugin_id
-        
-        # Retrieve configuration from Spock
-        config = rag2f.spock.get_plugin_config(plugin_id)
-        
-        if not config:
-            raise ValueError(
-                f"No configuration found for plugin '{plugin_id}'. "
-                "Please provide configuration via JSON file or environment variables."
-            )
-        
+        self._config = config
         # Extract and validate required parameters
         self._azure_endpoint = config.get('azure_endpoint')
         self._api_key = config.get('api_key')
         self._api_version = config.get('api_version')
         self._deployment = config.get('deployment')
         self._size = config.get('size')
-        
         # Optional parameters with defaults
-        self._timeout = config.get('timeout', 30.0)
+        self._timeout = config.get('timeout', 90.0)
         self._max_retries = config.get('max_retries', 2)
-        
         # Validate required parameters
         missing = []
         if not self._azure_endpoint:
@@ -76,31 +62,26 @@ class AzureOpenAIEmbedder:
             missing.append('deployment')
         if not self._size:
             missing.append('size')
-        
         if missing:
             raise ValueError(
-                f"Missing required configuration parameters for plugin '{plugin_id}': {', '.join(missing)}. "
-                f"Provide them via JSON config file or environment variables (RAG2F__PLUGINS__{plugin_id.upper()}__<PARAM>)."
+                f"Missing required configuration parameters: {', '.join(missing)}. "
+                "Provide them via JSON config file or environment variables."
             )
-        
         # Ensure size is an integer
         try:
             self._size = int(self._size)
         except (ValueError, TypeError):
             raise ValueError(f"Parameter 'size' must be an integer, got: {self._size}")
-        
         # Ensure timeout is a float
         try:
             self._timeout = float(self._timeout)
         except (ValueError, TypeError):
             raise ValueError(f"Parameter 'timeout' must be a number, got: {self._timeout}")
-        
         # Ensure max_retries is an integer
         try:
             self._max_retries = int(self._max_retries)
         except (ValueError, TypeError):
             raise ValueError(f"Parameter 'max_retries' must be an integer, got: {self._max_retries}")
-        
         # Initialize Azure OpenAI client
         self._client = AzureOpenAI(
             azure_endpoint=self._azure_endpoint,
@@ -109,10 +90,9 @@ class AzureOpenAIEmbedder:
             timeout=self._timeout,
             max_retries=self._max_retries,
         )
-        
         logger.info(
-            "AzureOpenAIEmbedder initialized for plugin '%s' with deployment '%s'",
-            plugin_id, self._deployment
+            "AzureOpenAIEmbedder initialized with deployment '%s'",
+            self._deployment
         )
 
     @property
@@ -125,7 +105,6 @@ class AzureOpenAIEmbedder:
         
         Args:
             text: Input text to embed
-            
         Returns:
             List of floats representing the embedding vector
         """
@@ -137,7 +116,7 @@ class AzureOpenAIEmbedder:
             return list(resp.data[0].embedding)
         except Exception as e:
             logger.error(
-                "Error generating embedding for plugin '%s': %s",
-                self._plugin_id, e
+                "Error generating embedding: %s",
+                e
             )
             raise

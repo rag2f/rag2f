@@ -41,7 +41,7 @@ dev = [
 where = ["src"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests","plugins"]
 pythonpath = ["src"]
 addopts = "-s -vv -rA --color=yes --maxfail=3"
 python_files = "test_*.py"
