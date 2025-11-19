@@ -33,7 +33,6 @@ class TestSpockJSONConfiguration:
         config_data = {
             "rag2f": {
                 "embedder_standard": "azure_openai",
-                "log_level": "INFO"
             },
             "plugins": {
                 "test_plugin": {
@@ -53,7 +52,6 @@ class TestSpockJSONConfiguration:
             
             assert spock.is_loaded
             assert spock.get_rag2f_config("embedder_standard") == "azure_openai"
-            assert spock.get_rag2f_config("log_level") == "INFO"
             assert spock.get_plugin_config("test_plugin", "api_key") == "test-key"
             assert spock.get_plugin_config("test_plugin", "timeout") == 30.0
         finally:

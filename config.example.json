@@ -1,8 +1,6 @@
 {
   "rag2f": {
-    "embedder_standard": "azure_openai",
-    "log_level": "INFO",
-    "max_retries": 3
+    "embedder_standard": "test_embedder"
   },
   "plugins": {
     "azure_openai_embedder": {

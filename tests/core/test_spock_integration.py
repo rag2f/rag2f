@@ -15,9 +15,7 @@ class TestSpockRAG2FIntegration:
         """Test RAG2F initialization with JSON configuration."""
         config_data = {
             "rag2f": {
-                "embedder_standard": "test_embedder",
-                "log_level": "DEBUG"
-            },
+                "embedder_standard": "test_embedder",            },
             "plugins": {
                 "test_plugin": {
                     "api_key": "test-key-123"
@@ -38,7 +36,6 @@ class TestSpockRAG2FIntegration:
             
             # Verify configuration is accessible
             assert rag2f.spock.get_rag2f_config("embedder_standard") == "test_embedder"
-            assert rag2f.spock.get_rag2f_config("log_level") == "DEBUG"
             assert rag2f.spock.get_plugin_config("test_plugin", "api_key") == "test-key-123"
         finally:
             os.unlink(config_path)
