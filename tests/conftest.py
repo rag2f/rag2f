@@ -36,5 +36,4 @@ async def rag2f():
 
 @pytest_asyncio.fixture(scope="session")
 async def morpheus(rag2f):
-    print("Providing morpheus fixture")
     return rag2f.morpheus

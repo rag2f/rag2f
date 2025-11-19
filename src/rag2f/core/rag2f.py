@@ -92,5 +92,4 @@ class RAG2F:
     def input_text_foreground(self, text: str) -> str:
         processed = self.johnny.handle_text_foreground(text)
         logger.debug("RAG2F.input_text processed=%r", processed)
-        print(f"Processing text: {processed}")
         return processed

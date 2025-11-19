@@ -254,15 +254,13 @@ class Plugin:
     def _clean_and_enrich_hook(self, hook: PillHook):
         # getmembers returns a tuple
         h = hook[1]
-        h.plugin_id = self._id
         # Only set plugin_id if not already set to avoid overwriting
         # when the same hook is loaded from different import paths
-        # if h.plugin_id is None:
-        #     h.plugin_id = self._id
-        #     logger.debug(f"Set plugin_id '{self._id}' for hook '{h.name}'")
-        # else:
-        #     logger.debug(f"Hook '{h.name}' already has plugin_id '{h.plugin_id}', skipping (current plugin: '{self._id}')")
-        
+        if h.plugin_id is None:
+            h.plugin_id = self._id
+            logger.debug(f"Set plugin_id '{self._id}' for hook '{h.name}'")
+        else:
+            logger.debug(f"Hook '{h.name}' already has plugin_id '{h.plugin_id}', skipping (current plugin: '{self._id}')")
         return h
 
     def _clean_plugin_override(self, plugin_override):

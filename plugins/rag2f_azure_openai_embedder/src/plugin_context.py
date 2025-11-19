@@ -12,7 +12,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Context variable for plugin_id - each thread/async task has its own isolated value
-_current_plugin_id: ContextVar[str | None] = ContextVar('pp_plugin_id', default=None)
+_current_plugin_id: ContextVar[str | None] = ContextVar('plugin_id', default=None)
 
 
 def set_plugin_id(plugin_id: str) -> None:
@@ -25,7 +25,6 @@ def set_plugin_id(plugin_id: str) -> None:
         plugin_id: The plugin identifier to store in context.
     """
     logger.debug(f"Setting plugin_id in context: {plugin_id}")
-    print(f"🔍 Setting plugin_id in context: {plugin_id}")
     _current_plugin_id.set(plugin_id)
 
 
@@ -46,7 +45,6 @@ def get_plugin_id(rag2f=None) -> str:
         RuntimeError: If plugin_id is not in context and rag2f is not provided.
     """
     pid = _current_plugin_id.get()
-    print(f"🔍 Retrieved plugin_id from context: {pid}")
     if pid is None:
         if rag2f is None:
             raise RuntimeError(
@@ -57,7 +55,6 @@ def get_plugin_id(rag2f=None) -> str:
         # Compute plugin_id using self_plugin_id and cache it
         logger.debug("Plugin ID not in context, computing from rag2f.morpheus.self_plugin_id()")
         pid = rag2f.morpheus.self_plugin_id()
-        print(f"🔍 Computed plugin_id: {pid}")
         set_plugin_id(pid)
     
     return pid

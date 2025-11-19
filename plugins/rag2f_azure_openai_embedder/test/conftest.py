@@ -35,9 +35,6 @@ if os.getenv("PYTEST_RICH", "1") == "1":
 		suppress=["/usr/lib/python3","site-packages"],  # hide "noisy" third-party frames
 	)
 
-import logging
-logging.basicConfig(level=logging.DEBUG)
-
 @pytest_asyncio.fixture(scope="session")
 async def rag2f_azure_openai_embedder():	
 	config = Spock.default_config()
@@ -49,9 +46,5 @@ async def rag2f_azure_openai_embedder():
 		"size": 1536
 	}
 	
-	instance = await RAG2F.create(plugins_folder=f"plugins/",config=config, config_path="plugins/test.json")
-	
-	# Reset AFTER to prevent contaminating subsequent tests
-	reset_plugin_id()
-	
+	instance = await RAG2F.create(plugins_folder=f"plugins/",config=config, config_path="plugins/test.json")	
 	return instance

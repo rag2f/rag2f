@@ -49,10 +49,7 @@ class Morpheus:
         # Filter out the plugins folder itself  
         plugins_folder_abs = os.path.abspath(self.plugins_folder)
         all_plugin_folders = [f for f in all_plugin_folders if os.path.abspath(f.rstrip('/')) != plugins_folder_abs]
-        
-        t = [os.path.abspath(folder) for folder in all_plugin_folders]
 
-        print(f"Find Plugins in: {t}")  
         # Convert plugin folders to absolute paths
         for folder in all_plugin_folders:
             try:
@@ -168,7 +165,7 @@ class Morpheus:
                 
                 func_name = frame_info.function
                 plugin_id = self._extract_plugin_id_from_hook(module, func_name)
-                print(f"🔍 self_plugin_id: found plugin_id '{plugin_id}' in function '{func_name}' of module '{module.__name__}'")
+                logger.debug(f"Found plugin_id '{plugin_id}' in function '{func_name}' of module '{module.__name__}'")
                 if plugin_id is not None:                    
                     return plugin_id
             
