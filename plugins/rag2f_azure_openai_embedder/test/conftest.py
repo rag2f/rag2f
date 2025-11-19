@@ -7,6 +7,12 @@ if os.path.isdir(SRC):
 	sys.path.insert(0, SRC)
 sys.path.insert(0, ROOT)
 
+# # Add workspace root for absolute plugin imports
+# WORKSPACE_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
+# if WORKSPACE_ROOT not in sys.path:
+# 	sys.path.insert(0, WORKSPACE_ROOT)
+
+from plugins.rag2f_azure_openai_embedder.src.plugin_context import reset_plugin_id
 from rag2f.core.rag2f import RAG2F
 import pytest
 import pytest_asyncio
@@ -29,9 +35,11 @@ if os.getenv("PYTEST_RICH", "1") == "1":
 		suppress=["/usr/lib/python3","site-packages"],  # hide "noisy" third-party frames
 	)
 
+import logging
+logging.basicConfig(level=logging.DEBUG)
 
 @pytest_asyncio.fixture(scope="session")
-async def rag2f():
+async def rag2f_azure_openai_embedder():	
 	config = Spock.default_config()
 	config["plugins"]["rag2f_azure_openai_embedder"] = {
 		"azure_endpoint": "https://your-resource.openai.azure.com",
@@ -40,5 +48,10 @@ async def rag2f():
 		"deployment": "text-embedding-ada-002",
 		"size": 1536
 	}
+	
 	instance = await RAG2F.create(plugins_folder=f"plugins/",config=config, config_path="plugins/test.json")
+	
+	# Reset AFTER to prevent contaminating subsequent tests
+	reset_plugin_id()
+	
 	return instance

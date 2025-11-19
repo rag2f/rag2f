@@ -13,7 +13,7 @@ Configuration hierarchy:
 
 Environment variables follow the naming convention:
 RAG2F__<section>__<key> for nested values
-Example: RAG2F__RAG2F__EMBEDDER_STANDARD="azure_openai"
+Example: RAG2F__RAG2F__EMBEDDER_STANDARD="test_embedder"
          RAG2F__PLUGINS__AZURE_OPENAI_EMBEDDER__API_KEY="..."
 """
 

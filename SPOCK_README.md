@@ -23,7 +23,7 @@ Spock is the centralized configuration management system for RAG2F. It provides 
 ```json
 {
   "rag2f": {
-    "embedder_standard": "azure_openai"
+    "embedder_standard": "test_embedder"
   },
   "plugins": {
     "azure_openai_embedder": {

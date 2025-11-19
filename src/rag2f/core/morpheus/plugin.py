@@ -54,6 +54,7 @@ class Plugin:
 
         # plugin id is just the folder name
         self._id: str = os.path.basename(os.path.normpath(plugin_path))
+        logger.debug(f"Plugin created with path '{plugin_path}' -> id '{self._id}'")
 
         # plugin manifest (name, decription, thumb, etc.)
         self._manifest: PluginManifest = self._load_manifest()
@@ -199,14 +200,24 @@ class Plugin:
     def _install_requirements(self):
         """Instance method that calls the static method."""
         self.install_requirements(self.id, self.path)
-    
+     
     # lists of hooks
     def _load_decorated_functions(self):
         hooks = []
         plugin_overrides = []
 
         for py_file in self.py_files:
-            module_name = py_file.replace(".py", "").replace("/", ".")
+            # Normalize the module name to a stable namespace (plugins.<plugin_id>.<relative_path>)
+            # This avoids issues where the same file is imported with different module names
+            # (e.g., 'plugins.rag2f_azure_openai_embedder.src.bootstrap_hook' vs
+            # '.workspaces.rag2f.plugins.rag2f_azure_openai_embedder.src.bootstrap_hook')
+            # which would cause Python to treat them as different modules, leading to
+            # duplicate imports, decorator side effects, and overwritten hook metadata.
+            # By using a consistent module name, we ensure each plugin file is loaded only once,
+            # and hook metadata (like plugin_id) is not accidentally overwritten by duplicate imports.
+            rel = os.path.relpath(py_file, start=self._path)  
+            rel_mod = rel.replace(os.sep, ".").replace(".py", "")
+            module_name = f"plugins.{self._id}.{rel_mod}"
 
             logger.debug(f"Import module {module_name} from {py_file}")
 
@@ -244,6 +255,14 @@ class Plugin:
         # getmembers returns a tuple
         h = hook[1]
         h.plugin_id = self._id
+        # Only set plugin_id if not already set to avoid overwriting
+        # when the same hook is loaded from different import paths
+        # if h.plugin_id is None:
+        #     h.plugin_id = self._id
+        #     logger.debug(f"Set plugin_id '{self._id}' for hook '{h.name}'")
+        # else:
+        #     logger.debug(f"Hook '{h.name}' already has plugin_id '{h.plugin_id}', skipping (current plugin: '{self._id}')")
+        
         return h
 
     def _clean_plugin_override(self, plugin_override):

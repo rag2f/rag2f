@@ -49,14 +49,20 @@ def bootstrap_azure_openai_embedder(embedders_registry, rag2f):
     Returns:
         Updated embedders_registry with Azure OpenAI embedder
     """
-    # fast specific method to get the plugin_id, but there is another more genric
+
+    logger.info(f"🔍 BOOTSTRAP HOOK EXECUTING")
+    logger.info(f"🔍 Hook object: {bootstrap_azure_openai_embedder}")
+    logger.info(f"🔍 Hook plugin_id attribute: {getattr(bootstrap_azure_openai_embedder, 'plugin_id', 'NOT SET')}")
+  
+
+    # Get plugin_id directly from the hook's decorator (more reliable than self_plugin_id)
     # current_func = bootstrap_azure_openai_embedder
     # if isinstance(current_func, PillHook):
-    #     plugin_id_0 = current_func.plugin_id
-
+    #     plugin_id = current_func.plugin_id
+    # else:
+        # Fallback to get_plugin_id if not a PillHook (shouldn't happen)
     plugin_id = get_plugin_id(rag2f)
-
-    # Check if configuration exists for this plugin
+    
     config = rag2f.spock.get_plugin_config(plugin_id)
     
     if not config:
