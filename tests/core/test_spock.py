@@ -32,7 +32,7 @@ class TestSpockJSONConfiguration:
         """Test loading valid JSON configuration."""
         config_data = {
             "rag2f": {
-                "embedder_standard": "test_embedder",
+                "embedder_default": "test_embedder",
             },
             "plugins": {
                 "test_plugin": {
@@ -51,7 +51,7 @@ class TestSpockJSONConfiguration:
             spock.load()
             
             assert spock.is_loaded
-            assert spock.get_rag2f_config("embedder_standard") == "test_embedder"
+            assert spock.get_rag2f_config("embedder_default") == "test_embedder"
             assert spock.get_plugin_config("test_plugin", "api_key") == "test-key"
             assert spock.get_plugin_config("test_plugin", "timeout") == 30.0
         finally:
@@ -85,17 +85,17 @@ class TestSpockEnvironmentVariables:
     
     def test_load_from_env_rag2f_section(self):
         """Test loading RAG2F settings from environment."""
-        os.environ["RAG2F__RAG2F__EMBEDDER_STANDARD"] = "test_embedder"
+        os.environ["RAG2F__RAG2F__EMBEDDER_DEFAULT"] = "test_embedder"
         os.environ["RAG2F__RAG2F__MAX_RETRIES"] = "5"
         
         try:
             spock = Spock()
             spock.load()
             
-            assert spock.get_rag2f_config("embedder_standard") == "test_embedder"
+            assert spock.get_rag2f_config("embedder_default") == "test_embedder"
             assert spock.get_rag2f_config("max_retries") == 5  # Should be parsed as int
         finally:
-            del os.environ["RAG2F__RAG2F__EMBEDDER_STANDARD"]
+            del os.environ["RAG2F__RAG2F__EMBEDDER_DEFAULT"]
             del os.environ["RAG2F__RAG2F__MAX_RETRIES"]
     
     def test_load_from_env_plugins_section(self):
@@ -120,7 +120,7 @@ class TestSpockEnvironmentVariables:
         """Test that environment variables override JSON values."""
         config_data = {
             "rag2f": {
-                "embedder_standard": "json_embedder"
+                "embedder_default": "json_embedder"
             },
             "plugins": {
                 "test_plugin": {
@@ -133,7 +133,7 @@ class TestSpockEnvironmentVariables:
             json.dump(config_data, f)
             config_path = f.name
         
-        os.environ["RAG2F__RAG2F__EMBEDDER_STANDARD"] = "env_embedder"
+        os.environ["RAG2F__RAG2F__EMBEDDER_DEFAULT"] = "env_embedder"
         os.environ["RAG2F__PLUGINS__TEST_PLUGIN__API_KEY"] = "env-key"
         
         try:
@@ -141,11 +141,11 @@ class TestSpockEnvironmentVariables:
             spock.load()
             
             # Environment should override JSON
-            assert spock.get_rag2f_config("embedder_standard") == "env_embedder"
+            assert spock.get_rag2f_config("embedder_default") == "env_embedder"
             assert spock.get_plugin_config("test_plugin", "api_key") == "env-key"
         finally:
             os.unlink(config_path)
-            del os.environ["RAG2F__RAG2F__EMBEDDER_STANDARD"]
+            del os.environ["RAG2F__RAG2F__EMBEDDER_DEFAULT"]
             del os.environ["RAG2F__PLUGINS__TEST_PLUGIN__API_KEY"]
     
     def test_parse_json_in_env_value(self):

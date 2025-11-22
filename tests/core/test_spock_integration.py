@@ -16,13 +16,13 @@ class TestSpockRAG2FIntegration:
         """Test that multiple RAG2F instances have isolated Spock configurations."""
         config1_data = {
             "rag2f": {
-                "embedder_standard": "embedder1"
+                "embedder_default": "embedder1"
             }
         }
         
         config2_data = {
             "rag2f": {
-                "embedder_standard": "embedder2"
+                "embedder_default": "embedder2"
             }
         }
         
@@ -40,8 +40,8 @@ class TestSpockRAG2FIntegration:
             rag2f2 = await RAG2F.create(config_path=config2_path)
             
             # Each should have its own configuration
-            assert rag2f1.spock.get_rag2f_config("embedder_standard") == "embedder1"
-            assert rag2f2.spock.get_rag2f_config("embedder_standard") == "embedder2"
+            assert rag2f1.spock.get_rag2f_config("embedder_default") == "embedder1"
+            assert rag2f2.spock.get_rag2f_config("embedder_default") == "embedder2"
             
             # Verify they are different Spock instances
             assert rag2f1.spock is not rag2f2.spock

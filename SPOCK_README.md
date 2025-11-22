@@ -23,7 +23,7 @@ Spock is the centralized configuration management system for RAG2F. It provides 
 ```json
 {
   "rag2f": {
-    "embedder_standard": "test_embedder"
+    "embedder_default": "test_embedder"
   },
   "plugins": {
     "azure_openai_embedder": {
@@ -50,7 +50,7 @@ RAG2F__<SECTION>__<KEY>__<SUBKEY>...
 - Separator: Double underscore `__`
 - Sections: `RAG2F` for core, `PLUGINS` for plugins
 - Example:
-  - `RAG2F__RAG2F__EMBEDDER_STANDARD=azure_openai`
+  - `RAG2F__RAG2F__EMBEDDER_DEFAULT=azure_openai`
   - `RAG2F__PLUGINS__AZURE_OPENAI_EMBEDDER__API_KEY=sk-xxx`
   - `RAG2F__PLUGINS__MY_PLUGIN__DATABASE__HOST=localhost`
 
@@ -77,7 +77,7 @@ async def main():
     # rag2f = await RAG2F.create()
 
     # Access core config
-    embedder = rag2f.spock.get_rag2f_config("embedder_standard")
+    embedder = rag2f.spock.get_rag2f_config("embedder_default")
     # Access plugin config
     plugin_cfg = rag2f.spock.get_plugin_config("azure_openai_embedder")
 

@@ -5,7 +5,7 @@ providing a unified interface for accessing settings throughout the application.
 
 Configuration hierarchy:
 - rag2f: Core RAG2F settings
-  - embedder_standard: Default embedder to use
+  - embedder_default: Default embedder to use
   - ... (other core settings)
 - plugins: Plugin-specific configurations
   - <plugin_id>: Configuration for each plugin
@@ -13,7 +13,7 @@ Configuration hierarchy:
 
 Environment variables follow the naming convention:
 RAG2F__<section>__<key> for nested values
-Example: RAG2F__RAG2F__EMBEDDER_STANDARD="test_embedder"
+Example: RAG2F__RAG2F__EMBEDDER_DEFAULT="test_embedder"
          RAG2F__PLUGINS__AZURE_OPENAI_EMBEDDER__API_KEY="..."
 """
 
@@ -152,7 +152,7 @@ class Spock:
         RAG2F__<SECTION>__<KEY>__<SUBKEY>...
         
         Examples:
-        - RAG2F__RAG2F__EMBEDDER_STANDARD=azure_openai
+        - RAG2F__RAG2F__EMBEDDER_DEFAULT=azure_openai
         - RAG2F__PLUGINS__AZURE_OPENAI_EMBEDDER__API_KEY=sk-xxx
         - RAG2F__PLUGINS__AZURE_OPENAI_EMBEDDER__AZURE_ENDPOINT=https://...
         """
@@ -205,7 +205,7 @@ class Spock:
             value: Value to set
         """
         if section == "rag2f":
-            # For rag2f section, path is direct: [EMBEDDER_STANDARD] -> embedder_standard
+            # For rag2f section, path is direct: [EMBEDDER_DEFAULT] -> embedder_default
             target = self._config["rag2f"]
             for key in path[:-1]:
                 key_lower = key.lower()

@@ -1,6 +1,6 @@
 {
   "rag2f": {
-    "embedder_standard": "test_embedder"
+    "embedder_default": "test_embedder"
   },
   "plugins": {
     "azure_openai_embedder": {
