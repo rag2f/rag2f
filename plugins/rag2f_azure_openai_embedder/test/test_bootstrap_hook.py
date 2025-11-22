@@ -2,11 +2,10 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_bootstrap_embedders_called(rag2f_azure_openai_embedder):
-    # The embedders_registry should be populated by the bootstrap hook
-    embedders = getattr(rag2f_azure_openai_embedder, 'embedder_registry', None)
+    # The embedders should be registered via OptimusPrime
+    optimus = rag2f_azure_openai_embedder.optimus_prime
     
-    # Accept both dict and object with keys
-    assert embedders is not None, "Embedders registry should be initialized by bootstrap hook"
+    # Check that OptimusPrime is initialized
+    assert optimus is not None, "OptimusPrime should be initialized"
     # Check that at least one embedder is registered (the hook should run even if config is missing)
-    assert isinstance(embedders, dict), "Embedders registry should be a dict"   
-    assert "rag2f_azure_openai_embedder" in embedders, f"'rag2f_azure_openai_embedder' should be registered in embedders. Found keys: {list(embedders.keys())}"
+    assert optimus.has("rag2f_azure_openai_embedder"), f"'rag2f_azure_openai_embedder' should be registered in embedders. Found keys: {optimus.list_keys()}"

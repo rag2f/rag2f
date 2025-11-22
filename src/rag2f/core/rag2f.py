@@ -5,6 +5,7 @@ from rag2f.core.johnny5.johnny5 import Johnny5
 from rag2f.core.morpheus.morpheus import Morpheus
 from rag2f.core.protocols import Embedder
 from rag2f.core.spock.spock import Spock
+from rag2f.core.optimus_prime.optimus_prime import OptimusPrime
 
 logger = logging.getLogger(__name__)
 load_dotenv()
@@ -22,8 +23,7 @@ class RAG2F:
         self.spock = Spock(config_path=config_path)
         self.johnny = Johnny5(rag2f_instance=self)
         self.morpheus = Morpheus(plugins_folder=plugins_folder)
-        # Dictionary mapping strings to objects implementing Embedder
-        self.embedder_registry: dict[str, Embedder] = {}
+        self.optimus_prime = OptimusPrime()
         logger.debug("RAG2F instance created.")
 
     @classmethod
@@ -52,41 +52,15 @@ class RAG2F:
         logger.debug("Bootstrapping embedders from loaded plugins...")
         embedders = self.morpheus.execute_hook(
             "rag2f_bootstrap_embedders",
-            self.embedder_registry,
+            self.optimus_prime.registry,
             rag2f=self,
         )
-        # Normalize: accept None => {} and check for mapping
-        if embedders is None:
-            embedders = {}
-        if not hasattr(embedders, "items"):
-            raise TypeError(
-                "The 'rag2f_bootstrap_embedders' hook must return a mapping (e.g., dict)."
-            )
-        # Copy-on-write: work on a copy, then swap the reference
-        new_registry: dict[str, Embedder] = dict(self.embedder_registry)
-        # Single pass: validate (key/value) + override policy + insert
-        for key, embedder in embedders.items():
-            # Validate key
-            if not isinstance(key, str) or not key.strip():
-                raise ValueError(f"Invalid embedder key: {key!r}")
-            # Protocol compliance
-            if not isinstance(embedder, Embedder):
-                raise TypeError(
-                    f"Embedder '{key}' does not implement the Embedder protocol"
-                )
-            # Override policy
-            if key in new_registry:
-                raise ValueError(
-                    f"Override not allowed for already present key: {key!r}"
-                )
-            # Insert into the new copy
-            new_registry[key] = embedder
-        # Atomic swap of the reference (readers never see partial states)
-        self.embedder_registry = new_registry
+        # Register embedders using OptimusPrime
+        self.optimus_prime.register_batch(embedders)
+        registry_size = len(self.optimus_prime.list_keys()) if self.optimus_prime else 0
         logger.debug(
-            "Bootstrapping embedders completed. Registry size=%d (+%d from hook).",
-            len(self.embedder_registry),
-            len(embedders),
+            "Bootstrapping embedders completed. Registry size=%d.",
+            registry_size
         )
 
     def input_text_foreground(self, text: str) -> str:

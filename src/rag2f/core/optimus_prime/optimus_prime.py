@@ -1,0 +1,151 @@
+"""OptimusPrime - Embedder Registry Manager for RAG2F
+
+OptimusPrime manages the registry of embedders, providing a centralized
+interface for registering, retrieving, and querying embedders throughout 
+the application.
+
+Named after Optimus Prime from Transformers, this class transforms and 
+manages the embedder ecosystem within RAG2F.
+"""
+
+import logging
+from typing import Dict, Optional, List
+from rag2f.core.protocols import Embedder
+
+logger = logging.getLogger(__name__)
+
+
+class OptimusPrime:
+    """Embedder registry manager for RAG2F instances.
+    
+    Each RAG2F instance has its own OptimusPrime instance to maintain
+    isolated embedder registry state.
+    """
+
+    def __init__(self):
+        """Initialize OptimusPrime embedder registry manager."""
+        self._embedder_registry: Dict[str, Embedder] = {}
+        logger.debug("OptimusPrime instance created.")
+
+    def register(self, key: str, embedder: Embedder) -> None:
+        """Register an embedder with the given key.
+        
+        Args:
+            key: Unique identifier for the embedder
+            embedder: Embedder instance implementing the Embedder protocol
+            
+        Raises:
+            ValueError: If key is invalid or already exists
+            TypeError: If embedder doesn't implement Embedder protocol
+        """
+        # Validate key
+        if not isinstance(key, str) or not key.strip():
+            raise ValueError(f"Invalid embedder key: {key!r}")
+        
+        # Protocol compliance
+        if not isinstance(embedder, Embedder):
+            raise TypeError(
+                f"Embedder '{key}' does not implement the Embedder protocol"
+            )
+        
+        # Override policy: do not allow overriding existing embedders
+        if key in self._embedder_registry:
+            raise ValueError(
+                f"Override not allowed for already registered embedder: {key!r}"
+            )
+        
+        self._embedder_registry[key] = embedder
+        logger.debug("Embedder '%s' registered successfully.", key)
+
+    def register_batch(self, embedders: Dict[str, Embedder]) -> None:
+        """Register multiple embedders at once.
+        
+        Args:
+            embedders: Dictionary mapping keys to Embedder instances
+            
+        Raises:
+            ValueError: If any key is invalid or already exists
+            TypeError: If any embedder doesn't implement Embedder protocol
+        """
+        if embedders is None:
+            embedders = {}
+        
+        if not hasattr(embedders, "items"):
+            raise TypeError(
+                "embedders parameter must be a mapping (e.g., dict)."
+            )
+        
+        # Copy-on-write: work on a copy, then swap the reference
+        new_registry: Dict[str, Embedder] = dict(self._embedder_registry)
+        
+        # Single pass: validate (key/value) + override policy + insert
+        for key, embedder in embedders.items():
+            # Validate key
+            if not isinstance(key, str) or not key.strip():
+                raise ValueError(f"Invalid embedder key: {key!r}")
+            
+            # Protocol compliance
+            if not isinstance(embedder, Embedder):
+                raise TypeError(
+                    f"Embedder '{key}' does not implement the Embedder protocol"
+                )
+            
+            # Override policy
+            if key in new_registry:
+                raise ValueError(
+                    f"Override not allowed for already registered embedder: {key!r}"
+                )
+            
+            # Insert into the new copy
+            new_registry[key] = embedder
+        
+        # Atomic swap of the reference (readers never see partial states)
+        self._embedder_registry = new_registry
+        logger.debug(
+            "Batch registration completed. Registry size=%d (+%d new embedders).",
+            len(self._embedder_registry),
+            len(embedders),
+        )
+
+    def get(self, key: str) -> Optional[Embedder]:
+        """Get an embedder by its key.
+        
+        Args:
+            key: The embedder identifier
+            
+        Returns:
+            The Embedder instance if found, None otherwise
+        """
+        embedder = self._embedder_registry.get(key)
+        if embedder is None:
+            logger.debug("Embedder '%s' not found in registry.", key)
+        return embedder
+
+    def has(self, key: str) -> bool:
+        """Check if an embedder exists in the registry.
+        
+        Args:
+            key: The embedder identifier
+            
+        Returns:
+            True if the embedder exists, False otherwise
+        """
+        return key in self._embedder_registry
+
+    def list_keys(self) -> List[str]:
+        """Get a list of all registered embedder keys.
+        
+        Returns:
+            List of embedder keys in the registry
+        """
+        return list(self._embedder_registry.keys())
+
+
+    @property
+    def registry(self) -> Dict[str, Embedder]:
+        """Get a copy of the embedder registry.
+        
+        Returns:
+            A shallow copy of the embedder registry dictionary
+        """
+        return dict(self._embedder_registry)
