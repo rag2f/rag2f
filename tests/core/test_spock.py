@@ -170,64 +170,31 @@ class TestSpockEnvironmentVariables:
 class TestSpockGetters:
     """Test configuration getter methods."""
     
-    def test_get_rag2f_config(self):
-        """Test getting RAG2F config (entire and specific keys, with defaults)."""
-        config_data = {
-            "rag2f": {
-                "key1": "value1",
-                "key2": "value2"
-            }
-        }
-        
+    import pytest
+    @pytest.mark.parametrize("section, config_data, getter, key, expected, default_key, default_value", [
+        ("rag2f", {"rag2f": {"key1": "value1", "key2": "value2"}}, "get_rag2f_config", "key1", "value1", "nonexistent", "default_value"),
+        ("plugins", {"plugins": {"my_plugin": {"setting1": "value1", "setting2": 42}}}, "get_plugin_config", "my_plugin", {"setting1": "value1", "setting2": 42}, "nonexistent_plugin", "default"),
+    ])
+    def test_get_config(self, section, config_data, getter, key, expected, default_key, default_value):
+        import tempfile, json, os
+        from rag2f.core.spock.spock import Spock
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
             json.dump(config_data, f)
             config_path = f.name
-        
         try:
             spock = Spock(config_path=config_path)
             spock.load()
-            
-            # Get entire config
-            all_config = spock.get_rag2f_config()
-            assert all_config == {"key1": "value1", "key2": "value2"}
-            
-            # Get specific key
-            assert spock.get_rag2f_config("key1") == "value1"
-            
-            # Get nonexistent with default
-            assert spock.get_rag2f_config("nonexistent", default="default_value") == "default_value"
-        finally:
-            os.unlink(config_path)
-    
-    def test_get_plugin_config(self):
-        """Test getting plugin config (entire and specific keys, with defaults)."""
-        config_data = {
-            "plugins": {
-                "my_plugin": {
-                    "setting1": "value1",
-                    "setting2": 42
-                }
-            }
-        }
-        
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-            json.dump(config_data, f)
-            config_path = f.name
-        
-        try:
-            spock = Spock(config_path=config_path)
-            spock.load()
-            
-            # Get entire plugin config
-            plugin_config = spock.get_plugin_config("my_plugin")
-            assert plugin_config == {"setting1": "value1", "setting2": 42}
-            
-            # Get specific key
-            assert spock.get_plugin_config("my_plugin", "setting1") == "value1"
-            assert spock.get_plugin_config("my_plugin", "setting2") == 42
-            
-            # Get nonexistent with default
-            assert spock.get_plugin_config("nonexistent_plugin", "key", default="default") == "default"
+            if section == "rag2f":
+                all_config = spock.get_rag2f_config()
+                assert all_config == config_data["rag2f"]
+                assert getattr(spock, getter)(key) == expected
+                assert getattr(spock, getter)(default_key, default=default_value) == default_value
+            else:
+                plugin_config = spock.get_plugin_config(key)
+                assert plugin_config == expected
+                assert spock.get_plugin_config(key, "setting1") == "value1"
+                assert spock.get_plugin_config(key, "setting2") == 42
+                assert spock.get_plugin_config(default_key, "key", default=default_value) == default_value
         finally:
             os.unlink(config_path)
 
