@@ -3,7 +3,6 @@ from typing import Any, Optional, Dict
 from dotenv import load_dotenv
 from rag2f.core.johnny5.johnny5 import Johnny5
 from rag2f.core.morpheus.morpheus import Morpheus
-from rag2f.core.protocols import Embedder
 from rag2f.core.spock.spock import Spock
 from rag2f.core.optimus_prime.optimus_prime import OptimusPrime
 
@@ -23,7 +22,7 @@ class RAG2F:
         self.spock = Spock(config_path=config_path)
         self.johnny = Johnny5(rag2f_instance=self)
         self.morpheus = Morpheus(plugins_folder=plugins_folder)
-        self.optimus_prime = OptimusPrime()
+        self.optimus_prime = OptimusPrime(spock=self.spock)
         logger.debug("RAG2F instance created.")
 
     @classmethod

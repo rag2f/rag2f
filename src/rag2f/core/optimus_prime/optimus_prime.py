@@ -9,10 +9,13 @@ manages the embedder ecosystem within RAG2F.
 """
 
 import logging
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, TYPE_CHECKING
 from rag2f.core.protocols import Embedder
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from rag2f.core.spock.spock import Spock
 
 
 class OptimusPrime:
@@ -22,9 +25,10 @@ class OptimusPrime:
     isolated embedder registry state.
     """
 
-    def __init__(self):
+    def __init__(self, *, spock: Optional["Spock"] = None):
         """Initialize OptimusPrime embedder registry manager."""
         self._embedder_registry: Dict[str, Embedder] = {}
+        self._spock = spock
         logger.debug("OptimusPrime instance created.")
 
     def register(self, key: str, embedder: Embedder) -> None:
@@ -139,6 +143,57 @@ class OptimusPrime:
             List of embedder keys in the registry
         """
         return list(self._embedder_registry.keys())
+
+
+    def get_default(self) -> Embedder:
+        """Return the default embedder based on configuration hints.
+
+        Returns:
+            The Embedder instance that should be treated as default.
+
+        Raises:
+            LookupError: If no embedders are registered or default selection fails.
+        """
+        registry_size = len(self._embedder_registry)
+
+        if registry_size == 0:
+            raise LookupError("No embedders registered; unable to determine default embedder.")
+
+        normalized_key = self._resolve_default_key()
+
+        if registry_size == 1:
+            only_key, embedder = next(iter(self._embedder_registry.items()))
+            if normalized_key and normalized_key != only_key:
+                logger.warning(
+                    "Configured default embedder '%s' not found; using only registered embedder '%s' instead.",
+                    normalized_key,
+                    only_key,
+                )
+            return embedder
+
+        if not normalized_key:
+            raise LookupError(
+                "Multiple embedders registered but no default configured; set 'rag2f.embedder_default'."
+            )
+
+        embedder = self._embedder_registry.get(normalized_key)
+        if embedder is None:
+            available = ", ".join(sorted(self._embedder_registry.keys())) or "<none>"
+            raise LookupError(
+                f"Default embedder '{normalized_key}' not registered. Available embedders: {available}."
+            )
+
+        return embedder
+
+
+    def _resolve_default_key(self) -> Optional[str]:
+        if self._spock is None:
+            return None
+
+        value = self._spock.get_rag2f_config("embedder_default")
+        if isinstance(value, str):
+            value = value.strip()
+        return value or None
 
 
     @property

@@ -1,5 +1,7 @@
 """Tests for OptimusPrime - Embedder Registry Manager."""
 
+import logging
+
 import pytest
 from rag2f.core.optimus_prime.optimus_prime import OptimusPrime
 from rag2f.core.protocols import Embedder
@@ -14,6 +16,18 @@ class MockEmbedder:
     
     def getEmbedding(self, text: str, *, normalize: bool = False) -> list[float]:
         return [0.1] * self.size
+
+
+class StubSpock:
+    """Minimal Spock stub for controlling embedder_default in tests."""
+
+    def __init__(self, embedder_default: str | None = None):
+        self.embedder_default = embedder_default
+
+    def get_rag2f_config(self, key: str, default: object | None = None) -> object | None:
+        if key == "embedder_default":
+            return self.embedder_default
+        return default
 
 
 class TestOptimusPrime:
@@ -167,7 +181,6 @@ class TestOptimusPrime:
         assert len(optimus.list_keys()) == 2
 
 
-
     def test_registry_property(self):
         """Test getting registry copy."""
         optimus = OptimusPrime()
@@ -206,3 +219,57 @@ class TestOptimusPrime:
         assert len(optimus.list_keys()) == 1
         assert not optimus.has("new1")
         assert not optimus.has("new2")
+
+    def test_get_default_single_embedder_without_hint(self):
+        """Default lookup returns sole embedder when no config is provided."""
+        optimus = OptimusPrime(spock=StubSpock())
+        embedder = MockEmbedder()
+        optimus.register("only", embedder)
+
+        assert optimus.get_default() is embedder
+
+    def test_get_default_single_embedder_with_mismatched_hint_warns(self, caplog):
+        """Default lookup warns but returns sole embedder if hint mismatches."""
+        caplog.set_level(logging.WARNING)
+        optimus = OptimusPrime(spock=StubSpock("other"))
+        embedder = MockEmbedder()
+        optimus.register("only", embedder)
+
+        result = optimus.get_default()
+
+        assert result is embedder
+        assert "Configured default embedder" in caplog.text
+
+    def test_get_default_multiple_without_hint_errors(self):
+        """Multiple embedders require a configured default key."""
+        optimus = OptimusPrime(spock=StubSpock())
+        optimus.register("one", MockEmbedder())
+        optimus.register("two", MockEmbedder())
+
+        with pytest.raises(LookupError, match="Multiple embedders registered"):
+            optimus.get_default()
+
+    def test_get_default_multiple_with_invalid_key_errors(self):
+        """Configured default key must exist when multiple embedders are present."""
+        optimus = OptimusPrime(spock=StubSpock("missing"))
+        optimus.register("one", MockEmbedder())
+        optimus.register("two", MockEmbedder())
+
+        with pytest.raises(LookupError, match="Default embedder 'missing'"):
+            optimus.get_default()
+
+    def test_get_default_multiple_with_valid_key(self):
+        """Configured default key returns the matching embedder."""
+        optimus = OptimusPrime(spock=StubSpock("target"))
+        target = MockEmbedder()
+        optimus.register("target", target)
+        optimus.register("other", MockEmbedder())
+
+        assert optimus.get_default() is target
+
+    def test_get_default_without_embedders_errors(self):
+        """Calling get_default when no embedders are registered raises."""
+        optimus = OptimusPrime(spock=StubSpock())
+
+        with pytest.raises(LookupError, match="No embedders registered"):
+            optimus.get_default()
