@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rag2f-azure-openai-embedder"
+version = "0.1.0"
+description = "Azure OpenAI Embedder Plugin for RAG2F"
+readme = "CONFIG.md"
+requires-python = ">=3.12"
+license = {text = "GPL-3.0"}
+authors = [
+    {name = "RAG2F Team"}
+]
+dependencies = [
+    "rag2f>=0.1.0",
+    "openai>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/rag2f/rag2f"
+Repository = "https://github.com/rag2f/rag2f"
+
+[project.entry-points."rag2f.plugins"]
+rag2f_azure_openai_embedder = "rag2f_azure_openai_embedder:get_plugin_path"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["rag2f_azure_openai_embedder*"]
+
+[tool.setuptools.package-data]
+rag2f_azure_openai_embedder = ["*.json", "*.json.example", "src/**/*.py"]

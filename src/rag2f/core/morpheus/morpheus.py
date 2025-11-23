@@ -4,6 +4,7 @@ import shutil
 import inspect
 from copy import deepcopy
 from typing import Any, Callable, Dict, List
+from importlib.metadata import entry_points
 
 from rag2f.core import utils
 from rag2f.core.morpheus.decorators.hook import PillHook
@@ -36,14 +37,70 @@ class Morpheus:
         await instance.find_plugins()
         return instance
     
-    # discover all plugins
+    # discover all plugins from both entry points and filesystem
     async def find_plugins(self):
-        # emptying plugin dictionary, plugins will be discovered from disk
-        # and stored in a dictionary plugin_id -> plugin_obj
+        """Discover plugins from both filesystem and entry points.
+        
+        Priority order:
+        1. Entry points (installed packages via pip/uv)
+        2. Filesystem (local development in plugins_folder)
+        
+        Entry points take precedence to allow installed versions to override local ones.
+        """
         self.plugins = {}
+        
+        # 1. Load from entry points (installed packages)
+        await self._load_from_entry_points()
+        
+        # 2. Load from filesystem (local development/path-based)
+        await self._load_from_filesystem()
+        
+        await self.refresh_caches()
+
+    async def _load_from_entry_points(self):
+        """Load plugins from installed packages via entry points."""
+        try:
+            # Python 3.10+ syntax
+            discovered = entry_points(group="rag2f.plugins")
+        except TypeError:
+            # Python 3.9 fallback
+            discovered = entry_points().get("rag2f.plugins", [])
+        
+        for ep in discovered:
+            try:
+                plugin_factory = ep.load()
+                
+                # The factory should return the plugin path
+                if not callable(plugin_factory):
+                    logger.warning(f"Entry point '{ep.name}' is not callable")
+                    continue
+                
+                plugin_path = plugin_factory()
+                
+                if not isinstance(plugin_path, str):
+                    logger.warning(f"Entry point '{ep.name}' did not return a string path, got: {type(plugin_path)}")
+                    continue
+                
+                # Create plugin from the returned path
+                plugin = Plugin(plugin_path)
+                
+                # Register plugin (entry points have priority over filesystem)
+                if plugin.id not in self.plugins:
+                    self.plugins[plugin.id] = plugin
+                    plugin.activate()
+                    logger.info(f"✅ Loaded plugin '{plugin.id}' from entry point '{ep.name}'")
+                else:
+                    logger.debug(f"Plugin '{plugin.id}' already loaded, skipping entry point '{ep.name}'")
+                    
+            except Exception as e:
+                logger.error(f"Failed to load plugin from entry point '{ep.name}': {e}", exc_info=True)
+
+    async def _load_from_filesystem(self):
+        """Load plugins from filesystem (existing behavior for local development)."""
         if not os.path.exists(self.plugins_folder):
-            logger.error(f"Plugins folder does not exist: {self.plugins_folder}")
+            logger.warning(f"Plugins folder does not exist: {self.plugins_folder}")
             return
+            
         all_plugin_folders = glob.glob(f"{self.plugins_folder}*/")
         
         # Filter out the plugins folder itself  
@@ -54,9 +111,15 @@ class Morpheus:
         for folder in all_plugin_folders:
             try:
                 plugin = Plugin(folder)
-                # if plugin is valid, keep a reference                
-                self.plugins[plugin.id] = plugin
-                plugin.activate()
+                
+                # Avoid duplicates (entry points have priority)
+                if plugin.id not in self.plugins:
+                    self.plugins[plugin.id] = plugin
+                    plugin.activate()
+                    logger.info(f"📁 Loaded plugin '{plugin.id}' from filesystem: {folder}")
+                else:
+                    logger.debug(f"Plugin '{plugin.id}' already loaded from entry point, skipping filesystem version")
+                    
             except Exception as e:
                 logger.error(f"Could not load plugin in {folder}", exc_info=True)
         await self.refresh_caches()
