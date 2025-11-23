@@ -22,7 +22,7 @@ gestore grafo → Tron (gestisce la rete, perfetto per grafi)
 TODO:
 qunaod entra un nuovo messaggio di analisi e anche una ricerca va identificato un id di attività da passare e a cui può essere aggiunte info nei vari passaggi in modo genrico( ogni plugin conosce la sua parte perchè interroga la parte per id plugin )
 
-
+_create_settings_from_model e simili. non deve creare un file setting.json, ma popolare il sistema setting, se vogliamo. Forse da tolgiere, la parte utile e dichiarare cosa serve come setting.
 
 
 
