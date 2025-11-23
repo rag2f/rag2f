@@ -3,7 +3,7 @@
 import logging
 
 import pytest
-from rag2f.core.optimus_prime.optimus_prime import OptimusPrime
+from rag2f.core.optimus_prime.optimus_prime import OptimusPrime,EmbedderManager
 from rag2f.core.protocols import Embedder
 
 
@@ -98,7 +98,7 @@ class TestOptimusPrime:
 
     def test_register_batch_with_none(self):
         """Test batch registration with None input."""
-        optimus = OptimusPrime()
+        optimus = EmbedderManager()
         
         optimus.register_batch(None)
         

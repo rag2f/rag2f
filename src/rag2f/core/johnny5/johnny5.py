@@ -46,3 +46,6 @@ class Johnny5:
         return InsertResponse(
             status="success"
         )
+
+
+InputManager = Johnny5

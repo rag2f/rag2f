@@ -51,9 +51,7 @@ def bootstrap_azure_openai_embedder(embedders_registry, rag2f):
     """
 
     logger.info(f"🔍 BOOTSTRAP HOOK EXECUTING")
-    logger.info(f"🔍 Hook object: {bootstrap_azure_openai_embedder}")
-    logger.info(f"🔍 Hook plugin_id attribute: {getattr(bootstrap_azure_openai_embedder, 'plugin_id', 'NOT SET')}")
-  
+    logger.info(f"🔍 Hook object: {bootstrap_azure_openai_embedder}")  
 
     # Get plugin_id directly from the hook's decorator (more reliable than self_plugin_id)
     # current_func = bootstrap_azure_openai_embedder

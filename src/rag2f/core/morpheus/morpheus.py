@@ -256,3 +256,5 @@ class Morpheus:
             logger.debug(f"Error accessing hook '{hook_name}' in module {module.__name__}: {e}")
             return None
         
+
+PluginManager = Morpheus

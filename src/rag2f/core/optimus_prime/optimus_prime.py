@@ -207,3 +207,5 @@ class OptimusPrime:
             A shallow copy of the embedder registry dictionary
         """
         return dict(self._embedder_registry)
+
+EmbedderManager = OptimusPrime

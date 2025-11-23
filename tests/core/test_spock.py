@@ -5,7 +5,7 @@ import json
 import tempfile
 import pytest
 from pathlib import Path
-from rag2f.core.spock.spock import Spock
+from rag2f.core.spock.spock import Spock,ConfigManager
 
 
 class TestSpockBasics:
@@ -14,13 +14,13 @@ class TestSpockBasics:
     def test_spock_initialization(self):
         """Test that Spock can be initialized with and without config path."""
         # Without config path
-        spock = Spock()
+        spock = ConfigManager()
         assert spock is not None
         assert not spock.is_loaded
         assert spock.config_path is None
         
         # With config path
-        spock_with_path = Spock(config_path="/path/to/config.json")
+        spock_with_path = ConfigManager(config_path="/path/to/config.json")
         assert spock_with_path.config_path == "/path/to/config.json"
         assert not spock_with_path.is_loaded
 

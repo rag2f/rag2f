@@ -20,9 +20,15 @@ class RAG2F:
     """
     def __init__(self, plugins_folder: str | None = None, config_path: str | None = None):
         self.spock = Spock(config_path=config_path)
-        self.johnny = Johnny5(rag2f_instance=self)
+        self.johnny5 = Johnny5(rag2f_instance=self)
         self.morpheus = Morpheus(plugins_folder=plugins_folder)
         self.optimus_prime = OptimusPrime(spock=self.spock)
+
+        # Alias
+        self.config_manager = self.spock
+        self.input_manager = self.johnny5
+        self.plugin_manager = self.morpheus
+        self.embedder_manager = self.optimus_prime
         logger.debug("RAG2F instance created.")
 
     @classmethod
@@ -63,6 +69,6 @@ class RAG2F:
         )
 
     def input_text_foreground(self, text: str) -> str:
-        processed = self.johnny.handle_text_foreground(text)
+        processed = self.johnny5.handle_text_foreground(text)
         logger.debug("RAG2F.input_text processed=%r", processed)
         return processed

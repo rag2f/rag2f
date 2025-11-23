@@ -333,3 +333,5 @@ class Spock:
     def is_loaded(self) -> bool:
         """Check if configuration has been loaded."""
         return self._loaded
+
+ConfigManager=Spock  
