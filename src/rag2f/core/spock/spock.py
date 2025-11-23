@@ -32,6 +32,9 @@ class Spock:
     
     Each RAG2F instance has its own Spock instance to maintain
     isolated configuration state.
+
+    Famous quote from Spock in Star Trek:
+    "Logic is the beginning of wisdom, not the end."
     """
 
     ENV_PREFIX = "RAG2F"

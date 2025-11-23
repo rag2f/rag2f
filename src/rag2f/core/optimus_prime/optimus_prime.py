@@ -23,6 +23,9 @@ class OptimusPrime:
     
     Each RAG2F instance has its own OptimusPrime instance to maintain
     isolated embedder registry state.
+
+    Famous quote from Optimus Prime in Transformers:
+    "Freedom is the right of all sentient beings."
     """
 
     def __init__(self, *, spock: Optional["Spock"] = None):
