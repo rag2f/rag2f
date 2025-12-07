@@ -14,7 +14,7 @@ authors = [
 ]
 dependencies = [
     "rag2f>=0.1.0",
-    "openai>=1.0.0",
+    "openai==2.8.0",
 ]
 
 [project.optional-dependencies]

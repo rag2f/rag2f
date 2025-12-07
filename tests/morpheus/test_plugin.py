@@ -110,17 +110,40 @@ def test_save_settings(plugin):
         pytest.fail(f"File {plugin.settings_file_path} not found, but it should exist")
 
 
-# utility ot obtain installed python packages
+# utility to obtain installed python packages
 def list_packages():
-    result = subprocess.run(["uv", "pip", "list"], stdout=subprocess.PIPE)
+    result = subprocess.run(["uv", "pip", "list", "--system"], stdout=subprocess.PIPE)
     return str(result.stdout.decode()) 
 
 
 # Check if plugin requirements have been installed
 def test_install_plugin_dependencies(plugin):
-
-    result = list_packages()
-    assert "pip-install-test" in result
+    """Test that plugin dependencies are installed during activation.
+    
+    This test verifies the installation happens correctly by:
+    1. Uninstalling the test package if it exists
+    2. Creating a fresh plugin instance (which triggers activation and installation)
+    3. Verifying the package is now installed
+    """
+    # Ensure the test package is not installed before the plugin activates
+    subprocess.run(
+        ["uv", "pip", "uninstall", "--system", "pip-install-test"], 
+        stdout=subprocess.PIPE, 
+        stderr=subprocess.PIPE
+    )
+    
+    # Verify it's actually gone
+    result_before = list_packages()
+    assert "pip-install-test" not in result_before, "Package should not be installed before plugin activation"
+    
+    # Create a new plugin instance, which will trigger activation and dependency installation
+    from rag2f.core.morpheus.plugin import Plugin
+    fresh_plugin = Plugin(f"{PATH_MOCK}/plugins/mock_plugin/")
+    fresh_plugin.activate()
+    
+    # Verify the package was installed during activation
+    result_after = list_packages()
+    assert "pip-install-test" in result_after, "Package should be installed after plugin activation"
 
 
 
