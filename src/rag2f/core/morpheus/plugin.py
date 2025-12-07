@@ -386,6 +386,51 @@ class Plugin:
         hooks = []
         plugin_overrides = []
 
+        # ====================================================================
+        # SETUP DUMMY PACKAGES FOR RELATIVE IMPORTS
+        # ====================================================================
+        # When we load plugin files using importlib.util.spec_from_file_location,
+        # we assign them module names like 'plugins.rag2f_azure_openai_embedder.src.bootstrap_hook'.
+        # 
+        # However, if those files contain relative imports (e.g., "from .plugin_context import ..."),
+        # Python needs to resolve the parent package to understand what "." refers to.
+        # 
+        # Problem: The parent packages ('plugins' and 'plugins.rag2f_azure_openai_embedder')
+        # don't actually exist as installed Python packages - they're just naming conventions
+        # we use for organizing the modules in sys.modules.
+        # 
+        # Solution: Create "dummy" package modules in sys.modules before loading plugin files.
+        # These dummy packages tell Python's import system:
+        # - "Yes, 'plugins' is a valid package"
+        # - "Yes, 'plugins.rag2f_azure_openai_embedder' is a valid package"
+        # - "Here's where to find submodules (__path__)"
+        # 
+        # This allows Python to successfully resolve relative imports like:
+        #   from .src.plugin_context import set_plugin_id
+        # by understanding that "." means "plugins.rag2f_azure_openai_embedder"
+        # ====================================================================
+        
+        # Create top-level 'plugins' namespace package if it doesn't exist
+        if 'plugins' not in sys.modules:
+            import types
+            plugins_pkg = types.ModuleType('plugins')
+            plugins_pkg.__path__ = []  # Empty path list makes it a namespace package
+            plugins_pkg.__package__ = 'plugins'
+            sys.modules['plugins'] = plugins_pkg
+            logger.debug("Created dummy 'plugins' package in sys.modules for relative imports")
+        
+        # Create 'plugins.<plugin_id>' package if it doesn't exist
+        # This represents the root of this specific plugin
+        plugin_pkg_name = f'plugins.{self._id}'
+        if plugin_pkg_name not in sys.modules:
+            import types
+            plugin_pkg = types.ModuleType(plugin_pkg_name)
+            plugin_pkg.__path__ = [self._path]  # Point to the actual plugin directory
+            plugin_pkg.__package__ = plugin_pkg_name
+            plugin_pkg.__file__ = os.path.join(self._path, '__init__.py')
+            sys.modules[plugin_pkg_name] = plugin_pkg
+            logger.debug(f"Created dummy '{plugin_pkg_name}' package in sys.modules for relative imports")
+
         for py_file in self.py_files:
             # Normalize the module name to a stable namespace (plugins.<plugin_id>.<relative_path>)
             # This avoids issues where the same file is imported with different module names
@@ -403,11 +448,35 @@ class Plugin:
 
             # save a reference to decorated functions
             try:
-                # Load module directly from file path
-                spec = importlib.util.spec_from_file_location(module_name, py_file)
-                plugin_module = importlib.util.module_from_spec(spec)
-                sys.modules[module_name] = plugin_module
-                spec.loader.exec_module(plugin_module)
+                # ====================================================================
+                # AVOID DUPLICATE MODULE LOADING
+                # ====================================================================
+                # Check if this module has already been loaded into sys.modules.
+                # This can happen when:
+                # 1. A test's conftest.py imports the module directly (e.g., for reset_plugin_id)
+                # 2. The plugin loader then tries to load the same file again
+                # 
+                # Without this check, Python would execute the module code twice:
+                # - First with the import path used by conftest
+                # - Second with the import path used by the plugin loader
+                # 
+                # This causes problems:
+                # - Decorators (@hook, @plugin) run twice
+                # - Hook metadata gets overwritten
+                # - Duplicate hooks appear in the registry
+                # 
+                # Solution: Reuse the already-loaded module from sys.modules instead
+                # of loading it again. This ensures decorator code runs only once.
+                # ====================================================================
+                if module_name in sys.modules:
+                    logger.debug(f"Module {module_name} already loaded, reusing existing module")
+                    plugin_module = sys.modules[module_name]
+                else:
+                    # Load module directly from file path
+                    spec = importlib.util.spec_from_file_location(module_name, py_file)
+                    plugin_module = importlib.util.module_from_spec(spec)
+                    sys.modules[module_name] = plugin_module
+                    spec.loader.exec_module(plugin_module)
 
                 hooks += getmembers(plugin_module, self._is_rag2f_hook)
                 plugin_overrides += getmembers(plugin_module, self._is_rag2f_plugin_override)

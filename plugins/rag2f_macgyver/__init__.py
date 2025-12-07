@@ -19,7 +19,7 @@ def get_plugin_path() -> str:
         (including plugin.json, src/, settings.json) is packaged, so the
         parent of this file is the plugin root.
     """
-    # Return the parent directory (macgyver/) not this package directory (rag2f_macgyver/)
-    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    # Return this package directory (rag2f_macgyver/) which contains the plugin files
+    return os.path.dirname(os.path.abspath(__file__))
 
 __all__ = ['get_plugin_path']
