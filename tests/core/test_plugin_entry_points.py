@@ -61,10 +61,10 @@ async def test_plugin_priority_entry_points_over_filesystem():
     
     # Create a mock entry point for macgyver
     mock_entry_point = Mock(spec=EntryPoint)
-    mock_entry_point.name = "macgyver"
+    mock_entry_point.name = "rag2f_macgyver"
     
     # Point to the macgyver plugin root (not the rag2f_macgyver subfolder)
-    macgyver_path = os.path.join(utils.get_default_plugins_path(), "macgyver")
+    macgyver_path = os.path.join(utils.get_default_plugins_path(), "rag2f_macgyver")
     
     mock_entry_point.load.return_value = lambda: macgyver_path
     
@@ -74,12 +74,12 @@ async def test_plugin_priority_entry_points_over_filesystem():
         morpheus = await Morpheus.create()
         
         # Verify macgyver was loaded
-        assert "macgyver" in morpheus.plugins, "macgyver plugin should be loaded"
+        assert "rag2f_macgyver" in morpheus.plugins, "macgyver plugin should be loaded"
         
         # The plugin should only be loaded once (from entry point, not duplicated from filesystem)
         # This is verified by the logging behavior in the actual implementation
-        plugin = morpheus.plugins["macgyver"]
-        assert plugin.id == "macgyver"
+        plugin = morpheus.plugins["rag2f_macgyver"]
+        assert plugin.id == "rag2f_macgyver"
 
 
 @pytest.mark.asyncio  

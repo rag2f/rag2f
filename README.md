@@ -31,3 +31,18 @@ _create_settings_from_model e simili. non deve creare un file setting.json, ma p
 da spiegare per i plugin e caricare i requirements
 
 vscode ➜ /workspaces/rag2f (main) $ python3 -c "from rag2f.core.morpheus.plugin import Plugin; Plugin.install_requirements('local', 'plugins/azure_openai_embedder')"
+
+
+
+per notebook da capire una soluzione del genere
+from rag2f import RAG2F
+from rag2f.core.morpheus.decorators import hook
+
+# 1. Definisci gli hook PRIMA
+@hook("rag2f_bootstrap_embedders", priority=5)
+def my_embedder_hook(registry, rag2f):
+    registry["my_embedder"] = MyEmbedder()
+    return registry
+
+# 2. Passa gli hook al create()
+rag2f = await RAG2F.create(hooks=[my_embedder_hook])
