@@ -116,34 +116,58 @@ def list_packages():
     return str(result.stdout.decode()) 
 
 
-# Check if plugin requirements have been installed
-def test_install_plugin_dependencies(plugin):
+@pytest.mark.parametrize("plugin_folder,package_name,install_method", [
+    ("mock_plugin", "pip-install-test", "requirements.txt"),
+    ("mock_plugin_pyproject", "pip-install-test", "pyproject.toml"),
+])
+def test_install_plugin_dependencies_methods(plugin_folder, package_name, install_method):
     """Test that plugin dependencies are installed during activation.
     
-    This test verifies the installation happens correctly by:
-    1. Uninstalling the test package if it exists
-    2. Creating a fresh plugin instance (which triggers activation and installation)
-    3. Verifying the package is now installed
+    This test verifies both installation methods work:
+    - requirements.txt (mock_plugin)
+    - pyproject.toml (mock_plugin_pyproject)
     """
     # Ensure the test package is not installed before the plugin activates
     subprocess.run(
-        ["uv", "pip", "uninstall", "--system", "pip-install-test"], 
+        ["uv", "pip", "uninstall", "--system", package_name], 
         stdout=subprocess.PIPE, 
         stderr=subprocess.PIPE
     )
     
     # Verify it's actually gone
     result_before = list_packages()
-    assert "pip-install-test" not in result_before, "Package should not be installed before plugin activation"
+    assert package_name not in result_before, \
+        f"Package {package_name} should not be installed before plugin activation (method: {install_method})"
     
     # Create a new plugin instance, which will trigger activation and dependency installation
     from rag2f.core.morpheus.plugin import Plugin
-    fresh_plugin = Plugin(f"{PATH_MOCK}/plugins/mock_plugin/")
+    fresh_plugin = Plugin(f"{PATH_MOCK}/plugins/{plugin_folder}/")
     fresh_plugin.activate()
     
     # Verify the package was installed during activation
     result_after = list_packages()
-    assert "pip-install-test" in result_after, "Package should be installed after plugin activation"
+    assert package_name in result_after, \
+        f"Package {package_name} should be installed after plugin activation (method: {install_method})"
+
+
+# Keep the old test for backward compatibility if needed
+def test_install_plugin_dependencies(plugin):
+    """Test that plugin dependencies from requirements.txt are installed (legacy test)."""
+    subprocess.run(
+        ["uv", "pip", "uninstall", "--system", "pip-install-test"], 
+        stdout=subprocess.PIPE, 
+        stderr=subprocess.PIPE
+    )
+    
+    result_before = list_packages()
+    assert "pip-install-test" not in result_before
+    
+    from rag2f.core.morpheus.plugin import Plugin
+    fresh_plugin = Plugin(f"{PATH_MOCK}/plugins/mock_plugin/")
+    fresh_plugin.activate()
+    
+    result_after = list_packages()
+    assert "pip-install-test" in result_after
 
 
 
