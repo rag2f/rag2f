@@ -35,6 +35,7 @@ dev = [
     "pytest-instafail",
     "coverage",
     "pytest-cov",
+    "respx"
 ]
 
 [tool.setuptools.packages.find]
