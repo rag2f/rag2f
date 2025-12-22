@@ -1,7 +1,7 @@
 
 import logging
 from rag2f.core.morpheus.decorators import hook,PillHook
-from .plugin_context import set_plugin_id, get_plugin_id
+from .plugin_context import get_plugin_id
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +50,7 @@ def bootstrap_azure_openai_embedder(embedders_registry, rag2f):
         Updated embedders_registry with Azure OpenAI embedder
     """
 
-    logger.info(f"🔍 BOOTSTRAP HOOK EXECUTING")
-    logger.info(f"🔍 Hook object: {bootstrap_azure_openai_embedder}")  
+    logger.debug(f"🔍 Hook object: {bootstrap_azure_openai_embedder}")  
 
     # Get plugin_id directly from the hook's decorator (more reliable than self_plugin_id)
     # current_func = bootstrap_azure_openai_embedder

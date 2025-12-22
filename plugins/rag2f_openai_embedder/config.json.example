@@ -1,0 +1,7 @@
+{
+  "api_key": "sk-your-api-key-here",
+  "model": "text-embedding-3-small",
+  "size": 1536,
+  "timeout": 30.0,
+  "max_retries": 2
+}

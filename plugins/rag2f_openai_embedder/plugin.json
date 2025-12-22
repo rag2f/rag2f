@@ -1,0 +1,10 @@
+{
+    "name": "OpenAI Embedder",
+    "version": "0.1.0",
+    "description": "OpenAI embedding provider for RAG2F using Spock configuration",
+    "author_name": "RAG2F Team",
+    "author_url": "https://github.com/rag2f/rag2f",
+    "plugin_url": "https://github.com/rag2f/rag2f",
+    "tags": "embedder, openai",
+    "min_rag2f_version": "0.1.0"
+}
