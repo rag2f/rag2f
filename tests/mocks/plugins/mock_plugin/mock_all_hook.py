@@ -1,6 +1,7 @@
 
 from rag2f.core.morpheus.decorators import hook
 from rag2f.core.protocols.embedder import register
+from .plugin_context import get_plugin_id
 
 class MockEmbedder:
     """Mock embedder per i test."""
@@ -14,5 +15,6 @@ class MockEmbedder:
 @hook
 def rag2f_bootstrap_embedders(embedder_registry, rag2f):
     """Mock hook che registra un embedder di test nel registry usando la funzione register."""
-    register(embedder_registry, "mock_embedder", MockEmbedder())
+    plugin_id = get_plugin_id(rag2f)
+    register(embedder_registry, plugin_id, MockEmbedder())
     return embedder_registry

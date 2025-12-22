@@ -1,6 +1,7 @@
 
 import logging
 from rag2f.core.morpheus.decorators import hook,PillHook
+from rag2f.core.protocols.embedder import register
 from .plugin_context import get_plugin_id
 
 logger = logging.getLogger(__name__)
@@ -75,7 +76,8 @@ def bootstrap_azure_openai_embedder(embedders_registry, rag2f):
         # Import embedder (lazy import to avoid issues if dependencies not installed)
         from .embedder import AzureOpenAIEmbedder
         # Initialize embedder with Spock configuration
-        embedder = AzureOpenAIEmbedder(config)                
+        embedder = AzureOpenAIEmbedder(config)
+        register(embedders_registry, plugin_id, embedder)                
         embedders_registry[plugin_id] = embedder        
         logger.info(
             "Azure OpenAI embedder registered as '%s' (size=%d, deployment=%s)",
