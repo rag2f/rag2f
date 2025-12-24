@@ -31,7 +31,7 @@ class Johnny5:
         duplicated = False 
         if self.rag2f:
             self.rag2f.morpheus.execute_hook(
-                "check_duplicated_input_text", duplicated , rag2f=self.rag2f
+                "check_duplicated_input_text", text, duplicated, rag2f=self.rag2f
             )   
         if duplicated:
             logger.debug("handle_text_foreground input duplicated")
@@ -39,9 +39,16 @@ class Johnny5:
                 status="duplicated",
                 message="Input text is duplicated"
             )
+        done = False 
         if self.rag2f:
             self.rag2f.morpheus.execute_hook(
-                "handle_text_foreground", text, rag2f=self.rag2f
+                "handle_text_foreground", text, done, rag2f=self.rag2f
+            )
+        if not done:
+            logger.debug("handle_text_foreground input not handled by any hook")
+            return InsertResponse(
+                status="failure",
+                message="Input text not handled"
             )
         return InsertResponse(
             status="success"
