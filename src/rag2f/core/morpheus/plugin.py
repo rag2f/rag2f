@@ -10,7 +10,7 @@ import subprocess
 import shutil
 from typing import Dict, List, Optional, Set
 from inspect import getmembers
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 from packaging.requirements import Requirement
 import inflection
 
@@ -255,10 +255,6 @@ class Plugin:
         # Load of hook
         self._load_decorated_functions()
 
-        # Try to create setting.json
-        if not os.path.isfile(self.settings_file_path):
-            self._create_settings_from_model()
-
         # run custom activation from @plugin
         if "activated" in self.overrides:
             self.overrides["activated"].function(self)
@@ -292,21 +288,12 @@ class Plugin:
         if "load_settings" in self.overrides:
             return self.overrides["load_settings"].function()
 
-        if not os.path.isfile(self.settings_file_path):
-            if not self._create_settings_from_model():
-                return {}
-
-        # load settings.json if exists
-        if os.path.isfile(self.settings_file_path):
-            try:
-                with open(self.settings_file_path, "r") as json_file:
-                    settings = json.load(json_file)
-                    return settings
-
-            except Exception as e:
-                logger.error(f"Unable to load plugin {self._id} settings.")
-                logger.warning(self.plugin_specific_error_message())
-                raise e
+        # default behaviour: no settings persistence handled here
+        logger.debug(
+            "Plugin %s skipping settings.json management; returning empty settings",
+            self._id,
+        )
+        return {}
 
     # save plugin settings
     def save_settings(self, settings: Dict):
@@ -314,44 +301,13 @@ class Plugin:
         if "save_settings" in self.overrides:
             return self.overrides["save_settings"].function(settings)
 
-        # load already saved settings
-        old_settings = self.load_settings()
-
-        # overwrite settings over old ones
-        updated_settings = {**old_settings, **settings}
-
-        # write settings.json in plugin folder
-        try:
-            with open(self.settings_file_path, "w") as json_file:
-                json.dump(updated_settings, json_file, indent=4)
-            return updated_settings
-        except Exception:
-            logger.error(f"Unable to save plugin {self._id} settings.")
-            logger.warning(self.plugin_specific_error_message())
-            return {}
-
-    def _create_settings_from_model(self) -> bool:
-
-        try:
-            model = self.settings_model()
-            # if some settings have no default value this will raise a ValidationError
-            settings = model().model_dump_json(indent=4)
-
-            # If each field have a default value and the model is correct,
-            # create the settings.json with default values
-            with open(self.settings_file_path, "x") as json_file:
-                json_file.write(settings)
-                logger.debug(
-                    f"{self.id} have no settings.json, created with settings model default values"
-                )
-
-            return True
-
-        except ValidationError:
-            logger.debug(
-                f"{self.id} settings model have missing defaut values, no settings.json created"
-            )
-            return False
+        # default behaviour: in-memory merge only, no file persistence
+        merged_settings = {**self.load_settings(), **settings}
+        logger.debug(
+            "Plugin %s settings persistence disabled; returning merged settings only",
+            self._id,
+        )
+        return merged_settings
 
     def _load_manifest(self) -> PluginManifest:
         

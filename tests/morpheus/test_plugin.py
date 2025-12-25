@@ -99,15 +99,9 @@ def test_load_settings(plugin):
 
 def test_save_settings(plugin):
     fake_settings = {"a": 42}
-    plugin.save_settings(fake_settings)
+    saved = plugin.save_settings(fake_settings)
 
-    settings = plugin.load_settings()
-    assert settings["a"] == fake_settings["a"]
-    # Try to delete the file, if it fails the test should fail because the file must exist
-    try:
-        os.remove(plugin.settings_file_path)
-    except FileNotFoundError:
-        pytest.fail(f"File {plugin.settings_file_path} not found, but it should exist")
+    assert saved["a"] == fake_settings["a"]
 
 
 # utility to obtain installed python packages
