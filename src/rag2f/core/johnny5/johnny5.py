@@ -1,4 +1,5 @@
 import logging
+import uuid
 
 from rag2f.core.dto.johnny5_dto import InsertResponse
 
@@ -28,11 +29,19 @@ class Johnny5:
                 status="failure",
                 message="Input text is empty"
             )
+        id = None
+        if self.rag2f:
+            id = self.rag2f.morpheus.execute_hook(
+                "get_id_input_text", id, rag2f=self.rag2f
+            )   #TODO: manca un test che garantisca il passaggio dal hook e ritorno di id.
+        if id is None:
+            #TODO: manca un test per ocntrollare che usa il guid.
+            id = uuid.uuid4().hex
         duplicated = False 
         if self.rag2f:
-            self.rag2f.morpheus.execute_hook(
-                "check_duplicated_input_text", text, duplicated, rag2f=self.rag2f
-            )   
+            duplicated = self.rag2f.morpheus.execute_hook(
+                "check_duplicated_input_text", duplicated, id, text, rag2f=self.rag2f
+            )   #TODO: manca un test che garantisca il passaggio dal hook e ritorno di duplicated
         if duplicated:
             logger.debug("handle_text_foreground input duplicated")
             return InsertResponse(
@@ -41,9 +50,9 @@ class Johnny5:
             )
         done = False 
         if self.rag2f:
-            self.rag2f.morpheus.execute_hook(
-                "handle_text_foreground", text, done, rag2f=self.rag2f
-            )
+            done = self.rag2f.morpheus.execute_hook(
+                "handle_text_foreground", done, id, text, rag2f=self.rag2f
+            )   #TODO: manca un test che garantisca il passaggio dal hook e ritorno di done
         if not done:
             logger.debug("handle_text_foreground input not handled by any hook")
             return InsertResponse(
