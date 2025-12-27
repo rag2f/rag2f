@@ -32,7 +32,7 @@ class Johnny5:
         id = None
         if self.rag2f:
             id = self.rag2f.morpheus.execute_hook(
-                "get_id_input_text", id, rag2f=self.rag2f
+                "get_id_input_text", id, text, rag2f=self.rag2f
             )   #TODO: manca un test che garantisca il passaggio dal hook e ritorno di id.
         if id is None:
             #TODO: manca un test per ocntrollare che usa il guid.
