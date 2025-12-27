@@ -1,0 +1,40 @@
+site_name: RAG2F Documentation
+site_description: Retrieval Augmented Generation Framework
+site_url: https://rag2f.github.io/rag2f/
+repo_url: https://github.com/rag2f/rag2f
+repo_name: rag2f/rag2f
+
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - content.code.copy
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Quickstart:
+      - Installation: quickstart/installation.md
+      - First steps: quickstart/first-steps.md
+  - Concepts:
+      - Architecture: concepts/architecture.md
+      - Configuration (Spock): concepts/configuration-spock.md
+      - Plugins (Morpheus): concepts/plugins-morpheus.md
+      - Hooks: concepts/hooks.md
+      - Embedders (Optimus Prime): concepts/embedders-optimus-prime.md
+  - Reference:
+      - Config schema: reference/config-schema.md
+      - Plugin spec: reference/plugin-spec.md
