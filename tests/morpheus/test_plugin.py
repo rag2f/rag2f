@@ -15,7 +15,9 @@ from tests.utils import PATH_MOCK
 # this fixture will give test functions a ready instantiated plugin
 # (and having the `client` fixture, a clean setup every unit)
 @pytest.fixture(scope="function")
-def plugin(morpheus):   
+def plugin(morpheus, rag2f):
+    # Ensure plugin config is clean for each test
+    rag2f.spock._config.setdefault("plugins", {}).pop("mock_plugin", None)
     p = morpheus.plugins["mock_plugin"]
     yield p
 
@@ -92,16 +94,23 @@ def test_settings_schema(plugin):
     assert settings_schema["type"] == "object"
 
 
-def test_load_settings(plugin):
+def test_load_settings_without_manager(plugin):
     settings = plugin.load_settings()
     assert settings == {}
 
 
-def test_save_settings(plugin):
+def test_load_settings_from_spock(plugin, rag2f):
+    rag2f.spock.set_plugin_config(plugin.id, "a", 42)
+    settings = plugin.load_settings(rag2f=rag2f)
+    assert settings == {"a": 42}
+
+
+def test_save_settings(plugin, rag2f):
     fake_settings = {"a": 42}
-    saved = plugin.save_settings(fake_settings)
+    saved = plugin.save_settings(fake_settings, rag2f=rag2f)
 
     assert saved["a"] == fake_settings["a"]
+    assert rag2f.spock.get_plugin_config(plugin.id, "a") == 42
 
 
 # utility to obtain installed python packages

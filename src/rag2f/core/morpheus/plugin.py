@@ -282,11 +282,29 @@ class Plugin:
         # default schema (empty)
         return PluginSettingsModel
 
+    def _resolve_config_manager(self, *, rag2f=None, spock=None):
+        """Resolve the Spock config manager from either an explicit argument or a rag2f instance."""
+        if spock is not None:
+            return spock
+        if rag2f is not None and hasattr(rag2f, "spock"):
+            return rag2f.spock
+        return None
+
     # load plugin settings
-    def load_settings(self):
+    def load_settings(self, *, rag2f=None, spock=None):
         # is "settings_load" hook defined in the plugin?
         if "load_settings" in self.overrides:
             return self.overrides["load_settings"].function()
+
+        config_manager = self._resolve_config_manager(rag2f=rag2f, spock=spock)
+        if config_manager is not None:
+            settings = config_manager.get_plugin_config(self._id)
+            logger.debug(
+                "Loaded settings for plugin %s from Spock (%d keys)",
+                self._id,
+                len(settings),
+            )
+            return settings
 
         # default behaviour: no settings persistence handled here
         logger.debug(
@@ -296,10 +314,22 @@ class Plugin:
         return {}
 
     # save plugin settings
-    def save_settings(self, settings: Dict):
+    def save_settings(self, settings: Dict, *, rag2f=None, spock=None):
         # is "settings_save" hook defined in the plugin?
         if "save_settings" in self.overrides:
             return self.overrides["save_settings"].function(settings)
+
+        config_manager = self._resolve_config_manager(rag2f=rag2f, spock=spock)
+        if config_manager is not None:
+            for key, value in settings.items():
+                config_manager.set_plugin_config(self._id, key, value)
+            updated_settings = config_manager.get_plugin_config(self._id)
+            logger.debug(
+                "Saved settings for plugin %s via Spock (%d keys)",
+                self._id,
+                len(updated_settings),
+            )
+            return updated_settings
 
         # default behaviour: in-memory merge only, no file persistence
         merged_settings = {**self.load_settings(), **settings}
