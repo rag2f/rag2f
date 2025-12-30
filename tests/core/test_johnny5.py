@@ -39,7 +39,7 @@ def test_handle_text_uses_hook_id():
     response = johnny5.handle_text_foreground("hello world")
 
     assert response.status == "success"
-    morpheus.execute_hook.assert_any_call("get_id_input_text", None, rag2f=rag2f)
+    morpheus.execute_hook.assert_any_call("get_id_input_text", None, "hello world", rag2f=rag2f)
 
 
 def test_handle_text_generates_uuid_when_hook_returns_none(monkeypatch):
