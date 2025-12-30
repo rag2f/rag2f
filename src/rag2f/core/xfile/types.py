@@ -181,8 +181,17 @@ def lte(field: str, value: Any) -> WhereNode:
 
 
 def in_(field: str, values: List[Any]) -> WhereNode:
-    """Create an 'in' condition: field in [values]."""
-    return ("in", field, tuple(values))
+    """Create an 'in' condition: field in [values].
+    
+    Args:
+        field: Field name to match.
+        values: List of values to match against. Always stored as a list
+            for JSON serialization compatibility.
+    
+    Returns:
+        WhereNode tuple: ("in", field, [values]).
+    """
+    return ("in", field, list(values))
 
 
 def and_(*conditions: WhereNode) -> WhereNode:

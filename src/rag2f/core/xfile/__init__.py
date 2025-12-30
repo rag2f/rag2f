@@ -122,6 +122,18 @@ from rag2f.core.xfile.capabilities import (
 )
 
 # =============================================================================
+# VALIDATION
+# =============================================================================
+from rag2f.core.xfile.validation import (
+    validate_queryspec,
+    get_expected_arity,
+    ALL_KNOWN_OPS,
+    ARITY_2_UNARY,
+    ARITY_3_COMPARISON,
+    ARITY_3_LOGICAL,
+)
+
+# =============================================================================
 # REPOSITORY PROTOCOLS
 # =============================================================================
 from rag2f.core.xfile.repository import (
@@ -129,6 +141,7 @@ from rag2f.core.xfile.repository import (
     QueryableRepository,
     VectorSearchRepository,
     GraphTraversalRepository,
+    RepositoryNativeMixin,
     AnyRepository,
 )
 
@@ -152,6 +165,7 @@ __all__ = [
     "QueryableRepository",
     "VectorSearchRepository",
     "GraphTraversalRepository",
+    "RepositoryNativeMixin",
     "AnyRepository",
     # Exceptions
     "RepositoryError",
@@ -196,4 +210,11 @@ __all__ = [
     "PaginationMode",
     "minimal_crud_capabilities",
     "standard_queryable_capabilities",
+    # Validation
+    "validate_queryspec",
+    "get_expected_arity",
+    "ALL_KNOWN_OPS",
+    "ARITY_2_UNARY",
+    "ARITY_3_COMPARISON",
+    "ARITY_3_LOGICAL",
 ]

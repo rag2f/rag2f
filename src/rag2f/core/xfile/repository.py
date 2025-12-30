@@ -159,6 +159,43 @@ class BaseRepository(Protocol):
     # NATIVE ESCAPE HATCHES
     # =========================================================================
     
+    @abstractmethod
+    def _get_native_handle(self, kind: str) -> object:
+        """Internal method to retrieve native handle.
+        
+        Plugins must implement this method to provide native backend access.
+        This is called by native() and as_native() after capability checks.
+        
+        Args:
+            kind: The kind of native handle to retrieve.
+            
+        Returns:
+            The native handle object (type depends on backend).
+            
+        Raises:
+            NotSupported: If the requested kind is not available.
+            
+        Note:
+            If capabilities().native.supported is True, this method MUST
+            be implemented and handle at least the kinds declared in
+            capabilities().native.kinds.
+        """
+        ...
+
+
+# =============================================================================
+# BASE REPOSITORY WITH NATIVE HELPERS (MIXIN)
+# =============================================================================
+
+class RepositoryNativeMixin:
+    """Mixin providing default implementations for native() and as_native().
+    
+    Repository implementations can inherit from this mixin to get the
+    standard native escape hatch behavior. Requires:
+    - capabilities() method returning Capabilities
+    - _get_native_handle(kind) method implementation
+    """
+    
     def native(self, kind: str = "primary") -> object:
         """Get the native backend handle for direct access.
         
@@ -184,7 +221,7 @@ class BaseRepository(Protocol):
             >>> mongo_client = repo.native("primary")
             >>> mongo_client.admin.command("ping")
         """
-        caps = self.capabilities()
+        caps = self.capabilities()  # type: ignore
         if not caps.native.supported:
             raise NotSupported("native", details="Native access is not supported by this repository")
         if kind not in caps.native.kinds:
@@ -193,18 +230,7 @@ class BaseRepository(Protocol):
                 f"native:{kind}",
                 details=f"Kind '{kind}' not available. Available kinds: {available}",
             )
-        return self._get_native_handle(kind)
-    
-    def _get_native_handle(self, kind: str) -> object:
-        """Internal method to retrieve native handle (override in subclass).
-        
-        Args:
-            kind: The kind of native handle.
-            
-        Returns:
-            The native handle object.
-        """
-        raise NotSupported("native", details="Not implemented")
+        return self._get_native_handle(kind)  # type: ignore
     
     def as_native(
         self,
@@ -459,6 +485,8 @@ __all__ = [
     "QueryableRepository",
     "VectorSearchRepository",
     "GraphTraversalRepository",
+    # Mixin for native support
+    "RepositoryNativeMixin",
     # Type aliases
     "AnyRepository",
 ]
