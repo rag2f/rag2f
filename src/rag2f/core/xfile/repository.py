@@ -278,13 +278,23 @@ class RepositoryNativeMixin:
                     details=f"Native handle failed compatibility check with {type_or_protocol}",
                 )
         elif isinstance(type_or_protocol, type):
-            # It's a class or Protocol (runtime_checkable)
-            if not isinstance(handle, type_or_protocol):
+            # It's a class or Protocol (potentially runtime_checkable)
+            try:
+                if not isinstance(handle, type_or_protocol):
+                    raise NotSupported(
+                        f"native:{kind}",
+                        details=(
+                            f"Native handle type '{type(handle).__name__}' is not compatible "
+                            f"with expected type '{type_or_protocol.__name__}'"
+                        ),
+                    )
+            except TypeError:
+                # isinstance failed (e.g., non-runtime-checkable Protocol)
                 raise NotSupported(
                     f"native:{kind}",
                     details=(
-                        f"Native handle type '{type(handle).__name__}' is not compatible "
-                        f"with expected type '{type_or_protocol.__name__}'"
+                        f"Cannot verify compatibility with '{type_or_protocol.__name__}'. "
+                        "If using a Protocol, add the @runtime_checkable decorator."
                     ),
                 )
         else:
