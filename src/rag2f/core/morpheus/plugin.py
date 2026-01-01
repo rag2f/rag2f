@@ -222,8 +222,17 @@ class Plugin:
         # search for .py files in folder
         py_files_path = os.path.join(self._path, "**/*.py")
         self.py_files = glob.glob(py_files_path, recursive=True)
-        # Filter out eventual `tests` folder
-        self.py_files = [f for f in self.py_files if "/tests/" not in f]
+        # Filter out:
+        # - /tests/ folder (test files)
+        # - /rag2f/src/rag2f/ (framework folder when nested as submodule)
+        # - /plugins/ folder (sub-plugins loaded separately by Morpheus, but only when
+        #   the current plugin path is NOT inside plugins/ - to avoid filtering out
+        #   the plugin's own files when loaded from the plugins folder)
+        is_inside_plugins_folder = "/plugins/" in self._path
+        self.py_files = [f for f in self.py_files 
+                         if "/tests/" not in f 
+                         and "/rag2f/src/rag2f/" not in f
+                         and (is_inside_plugins_folder or "/plugins/" not in f)]
 
         if len(self.py_files) == 0:
             raise Exception(
