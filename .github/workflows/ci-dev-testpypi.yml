@@ -1,0 +1,199 @@
+name: CI Dev - TestPyPI
+
+on:
+  push:
+    branches:
+      - dev
+  pull_request:
+    branches:
+      - dev
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install build "setuptools-scm[toml]>=8.0" wheel
+
+      - name: Validate src/ structure
+        run: |
+          echo "::group::Validating src/ directory structure"
+
+          if [ ! -d "src" ]; then
+            echo "❌ ERROR: /src directory not found!"
+            exit 1
+          fi
+          echo "✅ /src directory exists"
+
+          package_found=false
+          for dir in src/*/; do
+            if [ -d "$dir" ] && [ -f "${dir}__init__.py" ]; then
+              package_found=true
+              echo "✅ Found package: $(basename "$dir")"
+            fi
+          done
+
+          if [ -f "src/__init__.py" ]; then
+            package_found=true
+            echo "✅ src/ is also a package (has __init__.py)"
+          fi
+
+          if [ "$package_found" = false ]; then
+            echo "❌ ERROR: No importable package found in /src (no directories with __init__.py)"
+            exit 1
+          fi
+
+          echo "::endgroup::"
+
+      - name: Validate __init__.py presence
+        run: |
+          echo "::group::Validating __init__.py in all packages"
+
+          missing_init=()
+
+          while IFS= read -r -d '' dir; do
+            if [ ! -f "$dir/__init__.py" ]; then
+              missing_init+=("$dir")
+            fi
+          done < <(find src -type d -exec sh -c '[ -n "$(find "$1" -maxdepth 1 -name "*.py" -print -quit)" ]' _ {} \; -print0)
+
+          if [ ${#missing_init[@]} -gt 0 ]; then
+            echo "❌ ERROR: The following package directories are missing __init__.py:"
+            printf '%s\n' "${missing_init[@]}"
+            exit 1
+          fi
+
+          echo "✅ All package directories have __init__.py"
+          echo "::endgroup::"
+
+      - name: Validate pyproject.toml configuration
+        run: |
+          echo "::group::Validating pyproject.toml"
+
+          if ! grep -q 'dynamic.*=.*\[.*"version".*\]' pyproject.toml; then
+            echo "❌ ERROR: pyproject.toml must have dynamic = [\"version\"]"
+            exit 1
+          fi
+          echo "✅ dynamic version configured"
+
+          if ! grep -q 'setuptools-scm' pyproject.toml; then
+            echo "❌ ERROR: setuptools-scm not found in build-system.requires"
+            exit 1
+          fi
+          echo "✅ setuptools-scm in build-system.requires"
+
+          if ! grep -q 'local_scheme.*=.*"no-local-version"' pyproject.toml; then
+            echo "❌ ERROR: [tool.setuptools_scm].local_scheme must be \"no-local-version\""
+            exit 1
+          fi
+          echo "✅ local_scheme = no-local-version"
+
+          if ! grep -q 'write_to.*=.*"src/rag2f/_version.py"' pyproject.toml; then
+            echo "❌ ERROR: [tool.setuptools_scm].write_to must be \"src/rag2f/_version.py\""
+            exit 1
+          fi
+          echo "✅ write_to configured"
+
+          if ! grep -q '\[tool\.setuptools\.packages\.find\]' pyproject.toml || ! grep -q 'where.*=.*\[.*"src".*\]' pyproject.toml; then
+            echo "❌ ERROR: src-only packaging not configured: expected [tool.setuptools.packages.find] where = [\"src\"]"
+            exit 1
+          fi
+          echo "✅ src-only packaging configured"
+
+          echo "::endgroup::"
+
+      - name: Calculate DEV version
+        id: dev_version
+        run: |
+          echo "::group::Calculating DEV version"
+
+          if [ ! -f "NEXT_VERSION" ]; then
+            echo "❌ ERROR: NEXT_VERSION file not found in repo root"
+            exit 1
+          fi
+
+          NEXT_VERSION=$(tr -d ' \t\r\n' < NEXT_VERSION)
+          if ! echo "$NEXT_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "❌ ERROR: NEXT_VERSION must be X.Y.Z (PEP 440 base version). Found: $NEXT_VERSION"
+            exit 1
+          fi
+
+          DEV_VERSION="${NEXT_VERSION}.dev${GITHUB_RUN_NUMBER}"
+          echo "DEV version: $DEV_VERSION"
+
+          echo "version=$DEV_VERSION" >> "$GITHUB_OUTPUT"
+
+          echo "::endgroup::"
+
+      - name: Build package
+        env:
+          SETUPTOOLS_SCM_PRETEND_VERSION_FOR_RAG2F: ${{ steps.dev_version.outputs.version }}
+        run: |
+          echo "Building version: ${{ steps.dev_version.outputs.version }}"
+          rm -rf dist build *.egg-info src/*.egg-info src/**/_version.py
+          python -m build --wheel --no-isolation
+
+      - name: Verify build contents
+        run: |
+          echo "::group::Verifying build artifacts"
+          ls -lh dist/
+
+          WHEEL_FILE=$(ls dist/*.whl | head -1)
+          echo "Wheel: $WHEEL_FILE"
+
+          # Fail if non-src packages leak into the wheel
+          if python -m zipfile -l "$WHEEL_FILE" | grep -E '^(plugins/|tests/|test/|temp/|scripts/)' -q; then
+            echo "❌ ERROR: Wheel includes files outside src/ (plugins/tests/temp/scripts detected)"
+            python -m zipfile -l "$WHEEL_FILE" | grep -E 'plugins/|tests/|test/|temp/|scripts/' || true
+            exit 1
+          fi
+
+          # Ensure expected package is present
+          if ! python -m zipfile -l "$WHEEL_FILE" | grep -q 'rag2f/__init__.py'; then
+            echo "❌ ERROR: rag2f package not found in wheel"
+            exit 1
+          fi
+
+          echo "✅ Wheel contents look OK"
+          echo "::endgroup::"
+
+      - name: Publish to TestPyPI
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          password: ${{ secrets.TESTPYPI_API_TOKEN }}
+          skip-existing: true
+
+      - name: Smoke test - Install and verify
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+        run: |
+          echo "::group::Smoke test - installing from TestPyPI"
+
+          python -m pip install --upgrade pip
+          python -m pip install --no-deps --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ "rag2f==${{ steps.dev_version.outputs.version }}"
+
+          python - << 'PY'
+          import rag2f
+          print('Imported rag2f')
+          print('Version:', getattr(rag2f, '__version__', None))
+          print('Commit:', getattr(rag2f, '__commit__', None))
+          PY
+
+          echo "::endgroup::"
