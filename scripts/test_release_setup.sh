@@ -69,7 +69,6 @@ fi
 echo ""
 echo "3. Validating package structure..."
 
-
 if [ -d "src/rag2f" ]; then
     echo -e "  ${GREEN}✓${NC} Package directory exists"
 else
@@ -84,6 +83,25 @@ else
     exit 1
 fi
 
+# Validate __init__.py in all packages (IMPORTANT CHECK)
+echo ""
+echo "4. Validating __init__.py in all packages..."
+
+missing_init=()
+while IFS= read -r -d '' dir; do
+    if [ ! -f "$dir/__init__.py" ]; then
+        missing_init+=("$dir")
+    else
+        echo -e "  ${GREEN}✓${NC} $(echo "$dir" | sed 's|^src/||') has __init__.py"
+    fi
+done < <(find src -type d -exec sh -c '[ -n "$(find "$1" -maxdepth 1 -name "*.py" -print -quit)" ]' _ {} \; -print0)
+
+if [ ${#missing_init[@]} -gt 0 ]; then
+    echo -e "  ${RED}✗${NC} Missing __init__.py in:"
+    printf '    - %s\n' "${missing_init[@]}"
+    exit 1
+fi
+
 # Check version imports in __init__.py
 if grep -q "__version__" "src/rag2f/__init__.py"; then
     echo -e "  ${GREEN}✓${NC} Version exports in __init__.py"
@@ -94,7 +112,7 @@ fi
 
 # Test setuptools-scm
 echo ""
-echo "4. Testing setuptools-scm..."
+echo "5. Testing setuptools-scm..."
 
 if command -v python3 &> /dev/null; then
     VERSION=$(python3 -m setuptools_scm 2>&1 || echo "ERROR")
@@ -110,12 +128,11 @@ fi
 
 # Test build
 echo ""
-echo "5. Testing package build..."
+echo "6. Testing package build..."
 
 if [ -d "dist" ]; then
     rm -rf dist/
 fi
-
 
 export SETUPTOOLS_SCM_PRETEND_VERSION_FOR_RAG2F=0.1.0.dev999
 python3 -m build > /dev/null 2>&1 || {
@@ -133,8 +150,7 @@ fi
 
 # Check wheel contents
 echo ""
-echo "6. Verifying wheel contents..."
-
+echo "7. Verifying wheel contents..."
 
 WHEEL=$(ls dist/*.whl)
 CONTENTS=$(python3 -m zipfile -l "$WHEEL" | grep "rag2f/")
@@ -170,5 +186,3 @@ echo "  1. Configure GitHub secrets (TESTPYPI_API_TOKEN, PYPI_API_TOKEN)"
 echo "  2. Push to dev branch to test TestPyPI workflow"
 echo "  3. Create tag (e.g., v0.1.0rc1) to test PyPI workflow"
 echo ""
-echo "See RELEASE_GUIDE.md for detailed instructions."
-

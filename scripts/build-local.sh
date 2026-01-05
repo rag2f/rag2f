@@ -46,6 +46,25 @@ if [ "$package_found" = false ]; then
     exit 1
 fi
 
+# Validate __init__.py in all packages
+echo ""
+echo "✅ Validating __init__.py in all packages..."
+
+missing_init=()
+while IFS= read -r -d '' dir; do
+    if [ ! -f "$dir/__init__.py" ]; then
+        missing_init+=("$dir")
+    else
+        echo "  ✓ $(echo "$dir" | sed 's|^src/||') has __init__.py"
+    fi
+done < <(find src -type d -exec sh -c '[ -n "$(find "$1" -maxdepth 1 -name "*.py" -print -quit)" ]' _ {} \; -print0)
+
+if [ ${#missing_init[@]} -gt 0 ]; then
+    echo -e "${RED}❌ ERROR: The following package directories are missing __init__.py:${NC}"
+    printf '  - %s\n' "${missing_init[@]}"
+    exit 1
+fi
+
 # Check pyproject.toml
 echo ""
 echo "✅ Validating pyproject.toml..."
@@ -87,8 +106,6 @@ ls -lh dist/
 echo ""
 echo "🔍 Extracting version information..."
 
-
-
 # Unpack wheel to check version (force overwrite to avoid prompts)
 pip install -q wheel
 WHEEL_FILE=$(ls dist/*.whl | head -1)
@@ -113,7 +130,6 @@ source "$VENV_DIR/bin/activate"
 
 # Install the built wheel
 pip install -q dist/*.whl
-
 
 # Test import and version
 echo ""
