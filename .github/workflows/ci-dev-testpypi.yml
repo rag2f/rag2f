@@ -178,7 +178,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Publish to TestPyPI
-        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
@@ -186,7 +186,7 @@ jobs:
           skip-existing: true
 
       - name: Smoke test - Install and verify
-        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           echo "::group::Smoke test - installing from TestPyPI"
           sleep 30
