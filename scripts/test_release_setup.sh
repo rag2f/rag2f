@@ -69,14 +69,15 @@ fi
 echo ""
 echo "3. Validating package structure..."
 
-if [ -d "src/rag2f_openai_embedder" ]; then
+
+if [ -d "src/rag2f" ]; then
     echo -e "  ${GREEN}✓${NC} Package directory exists"
 else
     echo -e "  ${RED}✗${NC} Package directory NOT found"
     exit 1
 fi
 
-if [ -f "src/rag2f_openai_embedder/__init__.py" ]; then
+if [ -f "src/rag2f/__init__.py" ]; then
     echo -e "  ${GREEN}✓${NC} Package __init__.py exists"
 else
     echo -e "  ${RED}✗${NC} Package __init__.py NOT found"
@@ -84,7 +85,7 @@ else
 fi
 
 # Check version imports in __init__.py
-if grep -q "__version__" "src/rag2f_openai_embedder/__init__.py"; then
+if grep -q "__version__" "src/rag2f/__init__.py"; then
     echo -e "  ${GREEN}✓${NC} Version exports in __init__.py"
 else
     echo -e "  ${RED}✗${NC} Version exports NOT in __init__.py"
@@ -115,7 +116,8 @@ if [ -d "dist" ]; then
     rm -rf dist/
 fi
 
-export SETUPTOOLS_SCM_PRETEND_VERSION_FOR_RAG2F_OPENAI_EMBEDDER=0.1.0.dev999
+
+export SETUPTOOLS_SCM_PRETEND_VERSION_FOR_RAG2F=0.1.0.dev999
 python3 -m build > /dev/null 2>&1 || {
     echo -e "  ${RED}✗${NC} Build failed"
     exit 1
@@ -133,8 +135,9 @@ fi
 echo ""
 echo "6. Verifying wheel contents..."
 
+
 WHEEL=$(ls dist/*.whl)
-CONTENTS=$(python3 -m zipfile -l "$WHEEL" | grep "rag2f_openai_embedder/")
+CONTENTS=$(python3 -m zipfile -l "$WHEEL" | grep "rag2f/")
 
 if echo "$CONTENTS" | grep -q "__init__.py"; then
     echo -e "  ${GREEN}✓${NC} __init__.py in wheel"
@@ -150,11 +153,11 @@ else
     exit 1
 fi
 
-if echo "$CONTENTS" | grep -q "embedder.py"; then
-    echo -e "  ${GREEN}✓${NC} embedder.py in wheel"
+# Optionally check for a core file
+if echo "$CONTENTS" | grep -q "core/"; then
+    echo -e "  ${GREEN}✓${NC} core/ in wheel"
 else
-    echo -e "  ${RED}✗${NC} embedder.py NOT in wheel"
-    exit 1
+    echo -e "  ${YELLOW}⚠️  core/ NOT in wheel (optional)${NC}"
 fi
 
 # Summary

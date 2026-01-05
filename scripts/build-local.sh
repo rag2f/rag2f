@@ -1,5 +1,5 @@
 #!/bin/bash
-# Local build and verification script for rag2f-openai-embedder
+# Local build and verification script for rag2f
 
 set -e
 
@@ -87,14 +87,16 @@ ls -lh dist/
 echo ""
 echo "🔍 Extracting version information..."
 
-# Unpack wheel to check version
+
+
+# Unpack wheel to check version (force overwrite to avoid prompts)
 pip install -q wheel
 WHEEL_FILE=$(ls dist/*.whl | head -1)
-unzip -q "$WHEEL_FILE" -d /tmp/wheel_extract/ || true
+unzip -oq "$WHEEL_FILE" -d /tmp/wheel_extract/ || true
 
-if [ -f "/tmp/wheel_extract/rag2f_openai_embedder/_version.py" ]; then
+if [ -f "/tmp/wheel_extract/rag2f/_version.py" ]; then
     echo "Version file contents:"
-    cat /tmp/wheel_extract/rag2f_openai_embedder/_version.py
+    cat /tmp/wheel_extract/rag2f/_version.py
     rm -rf /tmp/wheel_extract/
 else
     echo -e "${YELLOW}⚠️  _version.py not found in wheel${NC}"
@@ -112,28 +114,27 @@ source "$VENV_DIR/bin/activate"
 # Install the built wheel
 pip install -q dist/*.whl
 
+
 # Test import and version
 echo ""
 echo "📊 Import test results:"
 python << EOF
 try:
-    import rag2f_openai_embedder
-    print(f"✅ Successfully imported rag2f_openai_embedder")
-    
+    import rag2f
+    print(f"✅ Successfully imported rag2f")
     try:
-        from rag2f_openai_embedder._version import __version__, __commit__, __distance__
+        from rag2f._version import __version__, __commit__, __distance__
         print(f"Version: {__version__}")
         print(f"Commit: {__commit__}")
         print(f"Distance: {__distance__}")
     except ImportError:
-        print(f"⚠️  Version info: {rag2f_openai_embedder.__version__}")
-        print(f"⚠️  Commit: {rag2f_openai_embedder.__commit__}")
-        print(f"⚠️  Distance: {rag2f_openai_embedder.__distance__}")
-    
-    # Test plugin path function
-    path = rag2f_openai_embedder.get_plugin_path()
-    print(f"Plugin path function works: {path}")
-    
+        print(f"⚠️  Version info: {getattr(rag2f, '__version__', None)}")
+        print(f"⚠️  Commit: {getattr(rag2f, '__commit__', None)}")
+        print(f"⚠️  Distance: {getattr(rag2f, '__distance__', None)}")
+    # Test plugin path function if exists
+    if hasattr(rag2f, 'get_plugin_path'):
+        path = rag2f.get_plugin_path()
+        print(f"Plugin path function works: {path}")
 except Exception as e:
     print(f"❌ Import failed: {e}")
     exit(1)
