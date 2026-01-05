@@ -197,20 +197,20 @@ jobs:
                 --extra-index-url https://pypi.org/simple/ \
                 rag2f==$DEV_VERSION
           python -c "
-    import rag2f
-    print('✅ Successfully imported rag2f')
-    try:
-      print(f'__version__: {getattr(rag2f, '__version__', None)}')
-      print(f'__commit__: {getattr(rag2f, '__commit__', None)}')
-      print(f'__distance__: {getattr(rag2f, '__distance__', None)}')
-      expected = '$DEV_VERSION'
-      if rag2f.__version__ != expected:
-        print(f'❌ Version mismatch! Expected {expected}, got {rag2f.__version__}')
-        exit(1)
-      print('✅ Version matches tag')
-    except Exception as e:
-      print(f'❌ Could not import version info: {e}')
-      exit(1)
-    "
+          import rag2f
+          print('✅ Successfully imported rag2f')
+          try:
+            print(f'__version__: {getattr(rag2f, '__version__', None)}')
+            print(f'__commit__: {getattr(rag2f, '__commit__', None)}')
+            print(f'__distance__: {getattr(rag2f, '__distance__', None)}')
+            expected = '$DEV_VERSION'
+            if rag2f.__version__ != expected:
+              print(f'❌ Version mismatch! Expected {expected}, got {rag2f.__version__}')
+              exit(1)
+            print('✅ Version matches tag')
+          except Exception as e:
+            print(f'❌ Could not import version info: {e}')
+            exit(1)
+          "
           deactivate
           echo "::endgroup::"
