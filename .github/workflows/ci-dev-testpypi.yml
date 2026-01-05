@@ -3,13 +3,14 @@ name: CI Dev - TestPyPI
 on:
   push:
     branches:
-      - dev
+      - main
   pull_request:
     branches:
-      - dev
+      - main
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   validate-and-publish:
@@ -34,13 +35,15 @@ jobs:
       - name: Validate src/ structure
         run: |
           echo "::group::Validating src/ directory structure"
-
+          
+          # Check src/ exists
           if [ ! -d "src" ]; then
             echo "❌ ERROR: /src directory not found!"
             exit 1
           fi
           echo "✅ /src directory exists"
-
+          
+          # Check for at least one package in src/
           package_found=false
           for dir in src/*/; do
             if [ -d "$dir" ] && [ -f "${dir}__init__.py" ]; then
@@ -48,7 +51,8 @@ jobs:
               echo "✅ Found package: $(basename "$dir")"
             fi
           done
-
+          
+          # Also check if src itself is a package
           if [ -f "src/__init__.py" ]; then
             package_found=true
             echo "✅ src/ is also a package (has __init__.py)"
@@ -64,40 +68,46 @@ jobs:
       - name: Validate __init__.py presence
         run: |
           echo "::group::Validating __init__.py in all packages"
-
+          
+          # Find all Python package directories (directories containing .py files)
+          # and verify they have __init__.py
           missing_init=()
 
           while IFS= read -r -d '' dir; do
             if [ ! -f "$dir/__init__.py" ]; then
               missing_init+=("$dir")
+            else
+              echo "✅ $dir has __init__.py"
             fi
           done < <(find src -type d -exec sh -c '[ -n "$(find "$1" -maxdepth 1 -name "*.py" -print -quit)" ]' _ {} \; -print0)
 
           if [ ${#missing_init[@]} -gt 0 ]; then
             echo "❌ ERROR: The following package directories are missing __init__.py:"
-            printf '%s\n' "${missing_init[@]}"
+            printf '  - %s\n' "${missing_init[@]}"
             exit 1
           fi
-
-          echo "✅ All package directories have __init__.py"
+          
           echo "::endgroup::"
 
       - name: Validate pyproject.toml configuration
         run: |
           echo "::group::Validating pyproject.toml"
-
+          
+          # Check for dynamic version
           if ! grep -q 'dynamic.*=.*\[.*"version".*\]' pyproject.toml; then
             echo "❌ ERROR: pyproject.toml must have dynamic = [\"version\"]"
             exit 1
           fi
           echo "✅ dynamic version configured"
-
+          
+          # Check for setuptools-scm in build-system
           if ! grep -q 'setuptools-scm' pyproject.toml; then
             echo "❌ ERROR: setuptools-scm not found in build-system.requires"
             exit 1
           fi
           echo "✅ setuptools-scm in build-system.requires"
-
+          
+          # Check for local_scheme no-local-version
           if ! grep -q 'local_scheme.*=.*"no-local-version"' pyproject.toml; then
             echo "❌ ERROR: [tool.setuptools_scm].local_scheme must be \"no-local-version\""
             exit 1
@@ -122,54 +132,48 @@ jobs:
         id: dev_version
         run: |
           echo "::group::Calculating DEV version"
-
           if [ ! -f "NEXT_VERSION" ]; then
-            echo "❌ ERROR: NEXT_VERSION file not found in repo root"
+            echo "❌ ERROR: NEXT_VERSION file not found!"
             exit 1
           fi
-
-          NEXT_VERSION=$(tr -d ' \t\r\n' < NEXT_VERSION)
-          if ! echo "$NEXT_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "❌ ERROR: NEXT_VERSION must be X.Y.Z (PEP 440 base version). Found: $NEXT_VERSION"
-            exit 1
-          fi
-
-          DEV_VERSION="${NEXT_VERSION}.dev${GITHUB_RUN_NUMBER}"
-          echo "DEV version: $DEV_VERSION"
-
-          echo "version=$DEV_VERSION" >> "$GITHUB_OUTPUT"
-
+          BASE_VERSION=$(cat NEXT_VERSION | tr -d '[:space:]')
+          echo "Base version: $BASE_VERSION"
+          DEV_VERSION="${BASE_VERSION}.dev${{ github.run_number }}"
+          echo "Dev version: $DEV_VERSION"
+          echo "version=$DEV_VERSION" >> $GITHUB_OUTPUT
+          # Normalizza nome per env var (PEP 503)
+          PACKAGE_NAME="rag2f"
+          NORMALIZED_NAME=$(echo "$PACKAGE_NAME" | tr '[:lower:]' '[:upper:]' | tr '.-' '_')
+          ENV_VAR_NAME="SETUPTOOLS_SCM_PRETEND_VERSION_FOR_${NORMALIZED_NAME}"
+          echo "$ENV_VAR_NAME=$DEV_VERSION" >> $GITHUB_ENV
+          echo "Set $ENV_VAR_NAME=$DEV_VERSION"
           echo "::endgroup::"
 
       - name: Build package
-        env:
-          SETUPTOOLS_SCM_PRETEND_VERSION_FOR_RAG2F: ${{ steps.dev_version.outputs.version }}
         run: |
           echo "Building version: ${{ steps.dev_version.outputs.version }}"
-          rm -rf dist build *.egg-info src/*.egg-info src/**/_version.py
           python -m build --wheel --no-isolation
+          python -m build --sdist --no-isolation
 
       - name: Verify build contents
         run: |
           echo "::group::Verifying build artifacts"
           ls -lh dist/
-
+          pip install wheel
+          for whl in dist/*.whl; do
+            echo "Contents of $whl:"
+            unzip -l "$whl" | grep -v "/$" || true
+          done
           WHEEL_FILE=$(ls dist/*.whl | head -1)
-          echo "Wheel: $WHEEL_FILE"
-
-          # Fail if non-src packages leak into the wheel
           if python -m zipfile -l "$WHEEL_FILE" | grep -E '^(plugins/|tests/|test/|temp/|scripts/)' -q; then
             echo "❌ ERROR: Wheel includes files outside src/ (plugins/tests/temp/scripts detected)"
             python -m zipfile -l "$WHEEL_FILE" | grep -E 'plugins/|tests/|test/|temp/|scripts/' || true
             exit 1
           fi
-
-          # Ensure expected package is present
           if ! python -m zipfile -l "$WHEEL_FILE" | grep -q 'rag2f/__init__.py'; then
             echo "❌ ERROR: rag2f package not found in wheel"
             exit 1
           fi
-
           echo "✅ Wheel contents look OK"
           echo "::endgroup::"
 
@@ -185,15 +189,28 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
         run: |
           echo "::group::Smoke test - installing from TestPyPI"
-
-          python -m pip install --upgrade pip
-          python -m pip install --no-deps --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ "rag2f==${{ steps.dev_version.outputs.version }}"
-
-          python - << 'PY'
-          import rag2f
-          print('Imported rag2f')
-          print('Version:', getattr(rag2f, '__version__', None))
-          print('Commit:', getattr(rag2f, '__commit__', None))
-          PY
-
+          sleep 30
+          python -m venv test-env
+          source test-env/bin/activate
+          DEV_VERSION="${{ steps.dev_version.outputs.version }}"
+          pip install --index-url https://test.pypi.org/simple/ \
+                --extra-index-url https://pypi.org/simple/ \
+                rag2f==$DEV_VERSION
+          python -c "
+    import rag2f
+    print('✅ Successfully imported rag2f')
+    try:
+      print(f'__version__: {getattr(rag2f, '__version__', None)}')
+      print(f'__commit__: {getattr(rag2f, '__commit__', None)}')
+      print(f'__distance__: {getattr(rag2f, '__distance__', None)}')
+      expected = '$DEV_VERSION'
+      if rag2f.__version__ != expected:
+        print(f'❌ Version mismatch! Expected {expected}, got {rag2f.__version__}')
+        exit(1)
+      print('✅ Version matches tag')
+    except Exception as e:
+      print(f'❌ Could not import version info: {e}')
+      exit(1)
+    "
+          deactivate
           echo "::endgroup::"
