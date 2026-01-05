@@ -81,6 +81,32 @@ class Morpheus:
                     logger.warning(f"Entry point '{ep.name}' did not return a string path, got: {type(plugin_path)}")
                     continue
                 
+                # FIX: If the plugin path points to site-packages directory itself,
+                # this is likely a bug in the plugin's get_plugin_path() function.
+                # Try to find the actual plugin directory based on the entry point name.
+                if "site-packages" in plugin_path and os.path.basename(plugin_path.rstrip('/')) == "site-packages":
+                    logger.warning(f"Entry point '{ep.name}' returned site-packages directory, attempting to locate actual plugin")
+                    
+                    # Try to find plugin directory using entry point name
+                    # Try both with hyphens and underscores (package names use hyphens, module names use underscores)
+                    potential_names = [
+                        ep.name,  # rag2f-openai-embedder
+                        ep.name.replace('-', '_'),  # rag2f_openai_embedder
+                    ]
+                    
+                    found = False
+                    for name in potential_names:
+                        potential_plugin_dir = os.path.join(plugin_path, name)
+                        if os.path.isdir(potential_plugin_dir):
+                            logger.info(f"Found plugin directory: {potential_plugin_dir}")
+                            plugin_path = potential_plugin_dir
+                            found = True
+                            break
+                    
+                    if not found:
+                        logger.error(f"Could not locate plugin directory for '{ep.name}' in {plugin_path}")
+                        continue
+                
                 # Create plugin from the returned path
                 plugin = Plugin(plugin_path)
                 
