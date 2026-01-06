@@ -226,6 +226,17 @@ class Morpheus:
         # phone has passed through all hooks. Return final output
         return phone
 
+    def resolve_hook(self, plugin_id: str, hook_name: str) -> PillHook | None:
+        """Return a single hook for a specific plugin.
+
+        This keeps hook execution deterministic for async agents that
+        must run exactly one semantic step."""
+        hooks = self.hooks.get(hook_name, [])
+        for hook in hooks:
+            if hook.plugin_id == plugin_id:
+                return hook
+        return None
+
     def self_plugin_id(self):
         """Get plugin_id (used from within a plugin).
         

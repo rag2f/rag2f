@@ -23,6 +23,7 @@ dependencies = [
     "python-dotenv",
     "pydantic",
     "packaging",
+    "redis>=5.0",
 ]
 
 [project.optional-dependencies]
@@ -36,7 +37,8 @@ dev = [
     "pytest-instafail",
     "coverage",
     "pytest-cov",
-    "respx"
+    "respx",
+    "fakeredis",
 ]
 rag2f-openai-embedder = ["rag2f-openai-embedder>=0.1.0.dev5"]
 

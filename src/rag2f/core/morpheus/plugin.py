@@ -289,9 +289,25 @@ class Plugin:
                 # Solution: Reuse the already-loaded module from sys.modules instead
                 # of loading it again. This ensures decorator code runs only once.
                 # ====================================================================
+                existing_module = None
+                # Reuse any module already loaded from the same file path, even if imported under a different name.
+                for mod in sys.modules.values():
+                    try:
+                        if getattr(mod, "__file__", None) and os.path.abspath(mod.__file__) == os.path.abspath(py_file):
+                            existing_module = mod
+                            break
+                    except Exception:
+                        continue
+
                 if module_name in sys.modules:
                     logger.debug(f"Module {module_name} already loaded, reusing existing module")
                     plugin_module = sys.modules[module_name]
+                elif existing_module:
+                    logger.debug(
+                        f"Module {module_name} already loaded under a different name, aliasing without re-exec"
+                    )
+                    plugin_module = existing_module
+                    sys.modules[module_name] = existing_module
                 else:
                     # Load module directly from file path
                     spec = importlib.util.spec_from_file_location(module_name, py_file)
