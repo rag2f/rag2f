@@ -272,26 +272,29 @@ class Plugin:
                 # ====================================================================
                 # AVOID DUPLICATE MODULE LOADING
                 # ====================================================================
-                # Check if this module has already been loaded into sys.modules.
-                # This can happen when:
-                # 1. A test's conftest.py imports the module directly (e.g., for reset_plugin_id)
-                # 2. The plugin loader then tries to load the same file again
-                # 
-                # Without this check, Python would execute the module code twice:
-                # - First with the import path used by conftest
-                # - Second with the import path used by the plugin loader
-                # 
-                # This causes problems:
-                # - Decorators (@hook, @plugin) run twice
-                # - Hook metadata gets overwritten
-                # - Duplicate hooks appear in the registry
-                # 
-                # Solution: Reuse the already-loaded module from sys.modules instead
-                # of loading it again. This ensures decorator code runs only once.
+                # Check if this module has already been loaded. It might have been
+                # imported under a different name (e.g., tests import the file
+                # directly) so we also search for any module with the same __file__.
+                # If found, alias it instead of re-executing the file.
                 # ====================================================================
+                existing_module = None
+                for mod in sys.modules.values():
+                    try:
+                        if getattr(mod, "__file__", None) and os.path.abspath(mod.__file__) == os.path.abspath(py_file):
+                            existing_module = mod
+                            break
+                    except Exception:
+                        continue
+
                 if module_name in sys.modules:
                     logger.debug(f"Module {module_name} already loaded, reusing existing module")
                     plugin_module = sys.modules[module_name]
+                elif existing_module:
+                    logger.debug(
+                        f"Module {module_name} already loaded under a different name, aliasing without re-exec"
+                    )
+                    plugin_module = existing_module
+                    sys.modules[module_name] = existing_module
                 else:
                     # Load module directly from file path
                     spec = importlib.util.spec_from_file_location(module_name, py_file)
