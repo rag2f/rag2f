@@ -197,6 +197,9 @@ cython_debug/
 #local config
 config.local.json
 
+# setuptools-scm generated version file
+src/rag2f/_version.py
+
 # Cursor
 #  Cursor is an AI-powered code editor. `.cursorignore` specifies files/directories to
 #  exclude from AI features like autocomplete and code analysis. Recommended for sensitive data
@@ -213,3 +216,5 @@ __marimo__/
 idee
 tests/mocks/plugins/mock_plugin/settings.json
 try.py
+
+temp/
