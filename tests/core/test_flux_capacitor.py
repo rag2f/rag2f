@@ -1,9 +1,10 @@
 import fakeredis.aioredis
 import pytest
 
+import importlib
+
 from rag2f.core.flux_capacitor.agent import AgentWorker
 from rag2f.core.flux_capacitor.jobs import JobStatus, RedisJobStore, RedisQueue
-from tests.mocks.plugins.agent_plugin import agent_hooks
 
 
 @pytest.mark.asyncio
@@ -70,6 +71,10 @@ async def test_agent_worker_executes_hook_and_fanout(morpheus):
     store = RedisJobStore(redis)
     queue = RedisQueue(redis)
 
+    # NOTE: the plugin loader imports hook modules under the stable namespace
+    # "plugins.<plugin_id>...". Importing the same file via the test package path
+    # would create a second module instance with a different EXECUTION_LOG.
+    agent_hooks = importlib.import_module("plugins.agent_plugin.agent_hooks")
     agent_hooks.EXECUTION_LOG.clear()
 
     root_job = await store.create_job(
