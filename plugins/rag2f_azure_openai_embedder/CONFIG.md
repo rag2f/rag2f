@@ -1,13 +1,13 @@
 # Azure OpenAI Embedder Configuration (Spock)
 
-Questo plugin ora legge la configurazione tramite il sistema centralizzato **Spock** di RAG2F.
-La configurazione del plugin deve essere inserita nel file di configurazione principale (o tramite environment variables) sotto il nodo `plugins.<plugin_id>`.
+This plugin now reads configuration through RAG2F's centralized **Spock** system.
+The plugin configuration must be placed in the main configuration file (or via environment variables) under `plugins.<plugin_id>`.
 
-Nota: le API in questo repository si aspettano che il plugin richiami la configurazione usando il `plugin_id` (es. `azure_openai_embedder`) tramite `rag2f.spock.get_plugin_config(plugin_id)`.
+Note: the APIs in this repository expect the plugin to request configuration using the `plugin_id` (e.g., `azure_openai_embedder`) via `rag2f.spock.get_plugin_config(plugin_id)`.
 
-## Dove mettere la configurazione
+## Where to place the configuration
 
-Nel file principale di configurazione (es. `config.json`) la sezione plugin deve avere questa struttura:
+In the main configuration file (e.g., `config.json`) the plugin section should have this structure:
 
 ```json
 {
@@ -25,13 +25,13 @@ Nel file principale di configurazione (es. `config.json`) la sezione plugin deve
 }
 ```
 
-In questo esempio il `plugin_id` è `azure_openai_embedder` e Spock caricherà la configurazione quando il plugin la richiederà.
+In this example the `plugin_id` is `azure_openai_embedder` and Spock will load the configuration when the plugin requests it.
 
-## Variabili d'ambiente (Spock)
+## Environment variables (Spock)
 
-Spock supporta anche le variabili d'ambiente. Il formato è basato su prefissi con doppio underscore per rappresentare la gerarchia.
+Spock also supports environment variables. The format uses double-underscore prefixes to represent the hierarchy.
 
-Esempi per impostare la configurazione del plugin via ENV:
+Examples to set the plugin configuration via ENV:
 
 ```bash
 export RAG2F__PLUGINS__AZURE_OPENAI_EMBEDDER__AZURE_ENDPOINT="https://your-resource.openai.azure.com"
@@ -43,31 +43,30 @@ export RAG2F__PLUGINS__AZURE_OPENAI_EMBEDDER__TIMEOUT="30.0"
 export RAG2F__PLUGINS__AZURE_OPENAI_EMBEDDER__MAX_RETRIES="2"
 ```
 
-Spock applicherà il parsing dei tipi (int, float, bool, JSON) quando possibile.
+Spock will parse types (int, float, bool, JSON) when possible.
 
-## Priorità delle sorgenti
+## Source priority
 
-1. **Environment Variables** (massima priorità)
-2. **File JSON** (config.json passato a RAG2F)
-3. **Valori di default nel codice** (minima priorità)
+1. **Environment Variables** (highest priority)
+2. **JSON file** (`config.json` passed to RAG2F)
+3. **Default values in code** (lowest priority)
 
-## Esempio: come il plugin accede alla configurazione
+## Example: how the plugin accesses configuration
 
-Nel codice il plugin ottiene la sua configurazione così:
+In code the plugin gets its configuration like this:
 
 ```python
 plugin_cfg = rag2f.spock.get_plugin_config("azure_openai_embedder")
 ```
 
-Dopo aver ottenuto `plugin_cfg`, il plugin può validare i campi richiesti e lanciare un errore chiaro se mancano.
+After obtaining `plugin_cfg`, the plugin can validate required fields and raise a clear error if they are missing.
 
-## Parametri richiesti
+## Required parameters
 
-- `azure_endpoint` (obbligatorio): URL dell'endpoint Azure OpenAI
-- `api_key` (obbligatorio): Chiave API
-- `api_version` (obbligatorio): Versione dell'API (es. `"2024-02-15-preview"`)
-- `deployment` (obbligatorio): Nome del deployment del modello
-- `size` (obbligatorio): Dimensione del vettore di embedding
-- `timeout` (opzionale): Timeout in secondi (default: 30.0)
-- `max_retries` (opzionale): Numero massimo di retry (default: 2)
-
+- `azure_endpoint` (required): URL of the Azure OpenAI endpoint
+- `api_key` (required): API key
+- `api_version` (required): API version (e.g., `"2024-02-15-preview"`)
+- `deployment` (required): Model deployment name
+- `size` (required): Embedding vector size
+- `timeout` (optional): Timeout in seconds (default: 30.0)
+- `max_retries` (optional): Maximum retries (default: 2)

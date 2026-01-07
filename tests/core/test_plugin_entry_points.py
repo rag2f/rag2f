@@ -130,3 +130,77 @@ async def test_invalid_entry_point_handling():
         
         # No plugins should be loaded from invalid entry points
         assert len(morpheus.plugins) == 0, "No plugins should be loaded from invalid entry points"
+
+
+@pytest.mark.asyncio
+async def test_site_packages_path_detection_with_underscore_name():
+    """Test that plugin is correctly located when entry point returns site-packages root with underscore naming.
+    
+    This tests the fix for when get_plugin_path() returns site-packages directory itself
+    instead of the actual plugin directory. The system should look for the plugin folder
+    by name (supporting both hyphen and underscore variants).
+    """
+    from unittest.mock import MagicMock
+    
+    # Create a mock entry point that returns site-packages (the problematic case)
+    mock_entry_point = MagicMock(spec=EntryPoint)
+    mock_entry_point.name = "rag2f-openai-embedder"  # Entry point uses hyphens
+    
+    # Simulate the broken plugin returning site-packages directly
+    fake_site_packages = "/usr/lib/python3.10/site-packages"
+    mock_entry_point.load.return_value = lambda: fake_site_packages
+    
+    # Create a temporary plugin directory structure to verify the lookup
+    with patch('rag2f.core.morpheus.morpheus.entry_points') as mock_ep:
+        with patch('os.path.exists') as mock_exists:
+            with patch('os.path.isdir') as mock_isdir:
+                # Configure mocks to simulate the site-packages scenario
+                def exists_side_effect(path):
+                    # site-packages exists, but rag2f_openai_embedder subdir exists
+                    return True
+                
+                def isdir_side_effect(path):
+                    # Only the underscore variant exists in site-packages
+                    return "rag2f_openai_embedder" in path
+                
+                mock_exists.side_effect = exists_side_effect
+                mock_isdir.side_effect = isdir_side_effect
+                mock_ep.return_value = [mock_entry_point]
+                
+                morpheus = Morpheus()
+                await morpheus._load_from_entry_points()
+                
+                # The plugin should be found even though entry point returned site-packages
+                # Verify that the system looked for the plugin in site-packages/rag2f_openai_embedder
+                assert any("rag2f_openai_embedder" in str(call) for call in mock_isdir.call_args_list), \
+                    "System should look for rag2f_openai_embedder subdirectory in site-packages"
+
+
+@pytest.mark.asyncio
+async def test_site_packages_path_detection_no_plugin_found():
+    """Test graceful handling when site-packages is returned but plugin directory not found.
+    
+    Tests that when get_plugin_path() returns site-packages but the actual plugin
+    directory doesn't exist, the system logs an error and skips the plugin instead
+    of crashing.
+    """
+    from unittest.mock import MagicMock
+    
+    # Create a mock entry point that returns site-packages (the problematic case)
+    mock_entry_point = MagicMock(spec=EntryPoint)
+    mock_entry_point.name = "nonexistent-plugin"
+    
+    fake_site_packages = "/usr/lib/python3.10/site-packages"
+    mock_entry_point.load.return_value = lambda: fake_site_packages
+    
+    with patch('rag2f.core.morpheus.morpheus.entry_points') as mock_ep:
+        with patch('os.path.exists', return_value=True):
+            with patch('os.path.isdir', return_value=False):  # Plugin dir doesn't exist
+                mock_ep.return_value = [mock_entry_point]
+                
+                morpheus = Morpheus()
+                # Should not raise exception, just skip the plugin
+                await morpheus._load_from_entry_points()
+                
+                # No plugins should be loaded
+                assert len(morpheus.plugins) == 0, "Plugin should be skipped if directory not found"
