@@ -5,11 +5,10 @@ import json
 import glob
 import importlib
 import importlib.util
-from typing import Dict, List
+from typing import List
 from inspect import getmembers
-from pydantic import  ValidationError
 import inflection
-from rag2f.core.morpheus.package_installer import PackageInstaller, PluginSettingsModel
+from rag2f.core.morpheus.package_installer import PackageInstaller
 from rag2f.core.morpheus.decorators import PillHook
 from rag2f.core.morpheus.decorators.plugin_decorator import PillPluginDecorator
 from rag2f.core.morpheus.plugin_manifest import PluginManifest
@@ -76,103 +75,9 @@ class Plugin:
         # Load of hook
         self._load_decorated_functions()
 
-        # Try to create setting.json
-        if not os.path.isfile(self.settings_file_path):
-            self._create_settings_from_model()
-
         # run custom activation from @plugin
         if "activated" in self.overrides:
             self.overrides["activated"].function(self)
-
-    # get plugin settings JSON schema
-    def settings_schema(self):
-        # is "settings_schema" hook defined in the plugin?
-        if "settings_schema" in self.overrides:
-            return self.overrides["settings_schema"].function()
-        else:
-            # if the "settings_schema" is not defined but
-            # "settings_model" is it gets the schema from the model
-            if "settings_model" in self.overrides:
-                return self.overrides["settings_model"].function().model_json_schema()
-
-        # default schema (empty)
-        return PluginSettingsModel.model_json_schema()
-
-    # get plugin settings Pydantic model
-    def settings_model(self):
-        # is "settings_model" hook defined in the plugin?
-        if "settings_model" in self.overrides:
-            return self.overrides["settings_model"].function()
-
-        # default schema (empty)
-        return PluginSettingsModel
-
-    # load plugin settings
-    def load_settings(self):
-        # is "settings_load" hook defined in the plugin?
-        if "load_settings" in self.overrides:
-            return self.overrides["load_settings"].function()
-
-        if not os.path.isfile(self.settings_file_path):
-            if not self._create_settings_from_model():
-                return {}
-
-        # load settings.json if exists
-        if os.path.isfile(self.settings_file_path):
-            try:
-                with open(self.settings_file_path, "r") as json_file:
-                    settings = json.load(json_file)
-                    return settings
-
-            except Exception as e:
-                logger.error(f"Unable to load plugin {self._id} settings.")
-                logger.warning(self.plugin_specific_error_message())
-                raise e
-
-    # save plugin settings
-    def save_settings(self, settings: Dict):
-        # is "settings_save" hook defined in the plugin?
-        if "save_settings" in self.overrides:
-            return self.overrides["save_settings"].function(settings)
-
-        # load already saved settings
-        old_settings = self.load_settings()
-
-        # overwrite settings over old ones
-        updated_settings = {**old_settings, **settings}
-
-        # write settings.json in plugin folder
-        try:
-            with open(self.settings_file_path, "w") as json_file:
-                json.dump(updated_settings, json_file, indent=4)
-            return updated_settings
-        except Exception:
-            logger.error(f"Unable to save plugin {self._id} settings.")
-            logger.warning(self.plugin_specific_error_message())
-            return {}
-
-    def _create_settings_from_model(self) -> bool:
-
-        try:
-            model = self.settings_model()
-            # if some settings have no default value this will raise a ValidationError
-            settings = model().model_dump_json(indent=4)
-
-            # If each field have a default value and the model is correct,
-            # create the settings.json with default values
-            with open(self.settings_file_path, "x") as json_file:
-                json_file.write(settings)
-                logger.debug(
-                    f"{self.id} have no settings.json, created with settings model default values"
-                )
-
-            return True
-
-        except ValidationError:
-            logger.debug(
-                f"{self.id} settings model have missing defaut values, no settings.json created"
-            )
-            return False
 
     def _load_manifest(self) -> PluginManifest:
         
@@ -311,7 +216,7 @@ class Plugin:
         self._plugin_overrides = {override.name: override for override in list(map(self._clean_plugin_override, plugin_overrides))}
 
         
-
+#
     def plugin_specific_error_message(self):
         name = self.manifest.name
         url = self.manifest.plugin_url
@@ -374,7 +279,3 @@ class Plugin:
     @property
     def overrides(self):
         return self._plugin_overrides
-    
-    @property
-    def settings_file_path(self):
-        return os.path.join(self._path, "settings.json")

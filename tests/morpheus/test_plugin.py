@@ -15,7 +15,9 @@ from tests.utils import PATH_MOCK
 # this fixture will give test functions a ready instantiated plugin
 # (and having the `client` fixture, a clean setup every unit)
 @pytest.fixture(scope="function")
-def plugin(morpheus):   
+def plugin(morpheus, rag2f):
+    # Ensure plugin config is clean for each test
+    rag2f.spock._config.setdefault("plugins", {}).pop("mock_plugin", None)
     p = morpheus.plugins["mock_plugin"]
     yield p
 
@@ -82,32 +84,6 @@ def test_activate_plugin(plugin):
     assert plugin.custom_id == plugin.id
     assert set(plugin.overrides.keys()) == {"activated"}
     assert not hasattr(plugin, "custom_deactivation_executed")
-
-
-def test_settings_schema(plugin):
-    settings_schema = plugin.settings_schema()
-    assert isinstance(settings_schema, dict)
-    assert settings_schema["properties"] == {}
-    assert settings_schema["title"] == "PluginSettingsModel"
-    assert settings_schema["type"] == "object"
-
-
-def test_load_settings(plugin):
-    settings = plugin.load_settings()
-    assert settings == {}
-
-
-def test_save_settings(plugin):
-    fake_settings = {"a": 42}
-    plugin.save_settings(fake_settings)
-
-    settings = plugin.load_settings()
-    assert settings["a"] == fake_settings["a"]
-    # Try to delete the file, if it fails the test should fail because the file must exist
-    try:
-        os.remove(plugin.settings_file_path)
-    except FileNotFoundError:
-        pytest.fail(f"File {plugin.settings_file_path} not found, but it should exist")
 
 
 # utility to obtain installed python packages
