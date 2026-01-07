@@ -1,6 +1,6 @@
-"""XFile - Pluggable Repository Manager for RAG2F.
+"""XFiles - Pluggable Repository Manager for RAG2F.
 
-XFile provides a unified interface for managing heterogeneous repository plugins,
+XFiles provides a unified interface for managing heterogeneous repository plugins,
 supporting CRUD operations, advanced queries via QuerySpec, capabilities declaration,
 and native escape hatches for backend-specific operations.
 
@@ -8,7 +8,7 @@ Named after The X-Files - "The truth is out there."
 
 Main Components
 ---------------
-- **XFile**: Repository plugin manager (register, get, search by ID/meta).
+- **XFiles**: Repository plugin manager (register, get, search by ID/meta).
 - **BaseRepository**: Minimum contract for all repository plugins (CRUD + native).
 - **QueryableRepository**: Extension for advanced queries with QuerySpec.
 - **VectorSearchRepository**: Extension for embedding-based retrieval.
@@ -18,19 +18,19 @@ Main Components
 
 Quick Start
 -----------
-    >>> from rag2f.core.xfile import XFile, QuerySpec, eq, and_
+    >>> from rag2f.core.xfiles import XFiles, QuerySpec, eq, and_
     >>> 
     >>> # Create manager
-    >>> xfile = XFile()
+    >>> xfiles = XFiles()
     >>> 
     >>> # Register repositories with metadata
-    >>> xfile.register("users", my_repo, meta={"type": "mongodb", "domain": "users"})
+    >>> xfiles.register("users", my_repo, meta={"type": "mongodb", "domain": "users"})
     >>> 
     >>> # Get repository by ID
-    >>> repo = xfile.get("users")
+    >>> repo = xfiles.get("users")
     >>> 
     >>> # Search by metadata
-    >>> mongo_repos = xfile.search(lambda m: m.get("type") == "mongodb")
+    >>> mongo_repos = xfiles.search(lambda m: m.get("type") == "mongodb")
     >>> 
     >>> # Build and execute queries (if repository is QueryableRepository)
     >>> query = QuerySpec(
@@ -60,7 +60,7 @@ Helper functions for building WhereNode AST:
 # =============================================================================
 # EXCEPTIONS
 # =============================================================================
-from rag2f.core.xfile.exceptions import (
+from rag2f.core.xfiles.exceptions import (
     RepositoryError,
     NotFound,
     AlreadyExists,
@@ -72,7 +72,7 @@ from rag2f.core.xfile.exceptions import (
 # =============================================================================
 # TYPES AND DTOs
 # =============================================================================
-from rag2f.core.xfile.types import (
+from rag2f.core.xfiles.types import (
     # Type aliases
     DocumentId,
     Document,
@@ -102,7 +102,7 @@ from rag2f.core.xfile.types import (
 # =============================================================================
 # CAPABILITIES
 # =============================================================================
-from rag2f.core.xfile.capabilities import (
+from rag2f.core.xfiles.capabilities import (
     # Feature descriptors
     FeatureSupport,
     FilterCapability,
@@ -124,7 +124,7 @@ from rag2f.core.xfile.capabilities import (
 # =============================================================================
 # VALIDATION
 # =============================================================================
-from rag2f.core.xfile.validation import (
+from rag2f.core.xfiles.validation import (
     validate_queryspec,
     get_expected_arity,
     ALL_KNOWN_OPS,
@@ -136,7 +136,7 @@ from rag2f.core.xfile.validation import (
 # =============================================================================
 # REPOSITORY PROTOCOLS
 # =============================================================================
-from rag2f.core.xfile.repository import (
+from rag2f.core.xfiles.repository import (
     BaseRepository,
     QueryableRepository,
     VectorSearchRepository,
@@ -148,8 +148,8 @@ from rag2f.core.xfile.repository import (
 # =============================================================================
 # MANAGER
 # =============================================================================
-from rag2f.core.xfile.xfile import (
-    XFile,
+from rag2f.core.xfiles.xfiles import (
+    XFiles,
     RepositoryManager,
     RepositoryEntry,
 )
@@ -157,7 +157,7 @@ from rag2f.core.xfile.xfile import (
 
 __all__ = [
     # Manager
-    "XFile",
+    "XFiles",
     "RepositoryManager",
     "RepositoryEntry",
     # Repository protocols

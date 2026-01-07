@@ -1,6 +1,6 @@
 """Tests for valid query validation (happy path)."""
 
-from rag2f.core.xfile import (
+from rag2f.core.xfiles import (
     QuerySpec,
     Capabilities,
     eq,

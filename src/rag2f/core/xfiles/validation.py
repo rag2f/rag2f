@@ -1,4 +1,4 @@
-"""XFile - QuerySpec Validation Module.
+"""XFiles - QuerySpec Validation Module.
 
 Provides centralized validation for QuerySpec objects, ensuring:
 - WhereNode arity (correct number of arguments per operator)
@@ -12,9 +12,9 @@ ensuring consistent behavior across different repository plugins.
 
 from typing import FrozenSet, Optional, Set
 
-from rag2f.core.xfile.capabilities import Capabilities
-from rag2f.core.xfile.exceptions import NotSupported, ValidationError
-from rag2f.core.xfile.types import QuerySpec, WhereNode
+from rag2f.core.xfiles.capabilities import Capabilities
+from rag2f.core.xfiles.exceptions import NotSupported, ValidationError
+from rag2f.core.xfiles.types import QuerySpec, WhereNode
 
 
 # =============================================================================
@@ -231,7 +231,7 @@ def validate_queryspec(
         NotSupported: If query uses unsupported capabilities.
         
     Example:
-        >>> from rag2f.core.xfile import (
+        >>> from rag2f.core.xfiles import (
         ...     validate_queryspec, QuerySpec, eq, Capabilities, FilterCapability
         ... )
         >>> 

@@ -1,4 +1,4 @@
-"""XFile - Repository Protocols (Contracts).
+"""XFiles - Repository Protocols (Contracts).
 
 Defines the abstract contracts for repository plugins:
 - BaseRepository: Minimum CRUD + capabilities + native escape hatches.
@@ -24,9 +24,9 @@ from typing import (
     runtime_checkable,
 )
 
-from rag2f.core.xfile.capabilities import Capabilities
-from rag2f.core.xfile.exceptions import NotSupported
-from rag2f.core.xfile.types import (
+from rag2f.core.xfiles.capabilities import Capabilities
+from rag2f.core.xfiles.exceptions import NotSupported
+from rag2f.core.xfiles.types import (
     Document,
     DocumentId,
     Patch,
@@ -351,7 +351,7 @@ class QueryableRepository(BaseRepository, Protocol):
             BackendError: If the backend operation fails.
             
         Example:
-            >>> from rag2f.core.xfile.types import QuerySpec, eq, and_, gt
+            >>> from rag2f.core.xfiles.types import QuerySpec, eq, and_, gt
             >>> query = QuerySpec(
             ...     select=["id", "name", "email"],
             ...     where=and_(eq("status", "active"), gt("age", 18)),

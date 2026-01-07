@@ -1,4 +1,4 @@
-"""XFile - Capabilities Declaration System.
+"""XFiles - Capabilities Declaration System.
 
 Defines the capability structure for repository plugins to declare
 what features they support and how (pushdown vs fallback).

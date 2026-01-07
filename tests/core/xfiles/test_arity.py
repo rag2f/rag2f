@@ -1,6 +1,6 @@
 """Tests for arity helpers and constants."""
 
-from rag2f.core.xfile import (
+from rag2f.core.xfiles import (
     get_expected_arity,
     ALL_KNOWN_OPS,
     ARITY_2_UNARY,

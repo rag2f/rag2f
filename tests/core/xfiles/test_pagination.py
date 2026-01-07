@@ -1,6 +1,6 @@
 """Tests for pagination and max_limit clamping."""
 
-from rag2f.core.xfile import (
+from rag2f.core.xfiles import (
     QuerySpec,
     Capabilities,
     PaginationCapability,

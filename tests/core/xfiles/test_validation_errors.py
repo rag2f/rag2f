@@ -2,7 +2,7 @@
 
 import pytest
 
-from rag2f.core.xfile import (
+from rag2f.core.xfiles import (
     QuerySpec,
     Capabilities,
     validate_queryspec,

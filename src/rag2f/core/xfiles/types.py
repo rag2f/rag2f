@@ -1,4 +1,4 @@
-"""XFile - Types and Data Transfer Objects.
+"""XFiles - Types and Data Transfer Objects.
 
 Defines the core type aliases and structures for repository operations:
 - Document: The base document type (dict with JSON-like values).

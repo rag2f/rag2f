@@ -3,12 +3,12 @@
 import pytest
 from typing import Protocol
 
-from rag2f.core.xfile import (
+from rag2f.core.xfiles import (
     Capabilities,
     NativeCapability,
     NotSupported,
 )
-from rag2f.core.xfile.repository import RepositoryNativeMixin
+from rag2f.core.xfiles.repository import RepositoryNativeMixin
 
 
 # =============================================================================

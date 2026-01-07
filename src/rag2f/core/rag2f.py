@@ -5,7 +5,7 @@ from rag2f.core.johnny5.johnny5 import Johnny5
 from rag2f.core.morpheus.morpheus import Morpheus
 from rag2f.core.spock.spock import Spock
 from rag2f.core.optimus_prime.optimus_prime import OptimusPrime
-from rag2f.core.xfile.xfile import XFile
+from rag2f.core.xfiles.xfiles import XFiles
 
 logger = logging.getLogger(__name__)
 load_dotenv()
@@ -24,14 +24,14 @@ class RAG2F:
         self.johnny5 = Johnny5(rag2f_instance=self)
         self.morpheus = Morpheus(plugins_folder=plugins_folder)
         self.optimus_prime = OptimusPrime(spock=self.spock)
-        self.xfile = XFile(spock=self.spock)
+        self.xfiles = XFiles(spock=self.spock)
 
         # Alias
         self.config_manager = self.spock
         self.input_manager = self.johnny5
         self.plugin_manager = self.morpheus
         self.embedder_manager = self.optimus_prime
-        self.repository_manager = self.xfile
+        self.repository_manager = self.xfiles
         logger.debug("RAG2F instance created.")
 
     @classmethod
@@ -82,12 +82,12 @@ class RAG2F:
         logger.debug("Bootstrapping repositories from loaded plugins...")
         repositories = self.morpheus.execute_hook(
             "rag2f_bootstrap_repositories",
-            self.xfile.registry,
+            self.xfiles.registry,
             rag2f=self,
         )
-        # Register repositories using XFile
-        self.xfile.register_batch(repositories)
-        registry_size = len(self.xfile.list_ids()) if self.xfile else 0
+        # Register repositories using XFiles
+        self.xfiles.register_batch(repositories)
+        registry_size = len(self.xfiles.list_ids()) if self.xfiles else 0
         logger.debug(
             "Bootstrapping repositories completed. Registry size=%d.",
             registry_size

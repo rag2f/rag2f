@@ -1,4 +1,4 @@
-"""XFile - Repository Plugin Exceptions.
+"""XFiles - Repository Plugin Exceptions.
 
 Custom exceptions for repository operations, providing clear error
 semantics for CRUD, query validation, and backend interactions.

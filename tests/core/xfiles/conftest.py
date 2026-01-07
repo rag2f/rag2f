@@ -1,8 +1,8 @@
-"""Shared fixtures for XFile validation tests."""
+"""Shared fixtures for XFiles validation tests."""
 
 import pytest
 
-from rag2f.core.xfile import (
+from rag2f.core.xfiles import (
     Capabilities,
     FilterCapability,
     FeatureSupport,

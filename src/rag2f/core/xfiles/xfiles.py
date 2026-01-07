@@ -1,6 +1,6 @@
-"""XFile - Repository Plugin Manager.
+"""XFiles - Repository Plugin Manager.
 
-XFile manages a registry of pluggable repositories, providing a centralized
+XFiles manages a registry of pluggable repositories, providing a centralized
 interface for registering, retrieving by ID, and querying repositories
 by metadata.
 
@@ -22,8 +22,8 @@ from typing import (
     Union,
 )
 
-from rag2f.core.xfile.capabilities import Capabilities
-from rag2f.core.xfile.repository import (
+from rag2f.core.xfiles.capabilities import Capabilities
+from rag2f.core.xfiles.repository import (
     AnyRepository,
     BaseRepository,
     QueryableRepository,
@@ -64,46 +64,46 @@ class RepositoryEntry:
 # XFILE - REPOSITORY PLUGIN MANAGER
 # =============================================================================
 
-class XFile:
+class XFiles:
     """Repository plugin manager for RAG2F instances.
     
-    XFile manages a collection of heterogeneous repository plugins,
+    XFiles manages a collection of heterogeneous repository plugins,
     providing:
     - Registration with unique IDs and metadata.
     - Lookup by ID.
     - Search by metadata predicates.
     - Iteration over registered repositories.
     
-    Each RAG2F instance has its own XFile instance to maintain
+    Each RAG2F instance has its own XFiles instance to maintain
     isolated repository registry state.
     
     Famous quote from The X-Files:
     "The truth is out there."
     
     Example:
-        >>> xfile = XFile()
-        >>> xfile.register("users_db", mongo_repo, meta={"type": "mongodb", "domain": "users"})
-        >>> xfile.register("cache", redis_repo, meta={"type": "redis", "purpose": "cache"})
+        >>> xfiles = XFiles()
+        >>> xfiles.register("users_db", mongo_repo, meta={"type": "mongodb", "domain": "users"})
+        >>> xfiles.register("cache", redis_repo, meta={"type": "redis", "purpose": "cache"})
         >>> 
         >>> # Get by ID
-        >>> users = xfile.get("users_db")
+        >>> users = xfiles.get("users_db")
         >>> 
         >>> # Search by metadata
-        >>> mongo_repos = xfile.search(lambda m: m.get("type") == "mongodb")
+        >>> mongo_repos = xfiles.search(lambda m: m.get("type") == "mongodb")
         >>> 
         >>> # Get capabilities
-        >>> caps = xfile.get_capabilities("users_db")
+        >>> caps = xfiles.get_capabilities("users_db")
     """
 
     def __init__(self, *, spock: Optional["Spock"] = None):
-        """Initialize XFile repository manager.
+        """Initialize XFiles repository manager.
         
         Args:
             spock: Optional Spock configuration manager for settings.
         """
         self._registry: Dict[str, RepositoryEntry] = {}
         self._spock = spock
-        logger.debug("XFile instance created.")
+        logger.debug("XFiles instance created.")
 
     # =========================================================================
     # REGISTRATION
@@ -128,7 +128,7 @@ class XFile:
             TypeError: If repository doesn't implement BaseRepository.
             
         Example:
-            >>> xfile.register(
+            >>> xfiles.register(
             ...     "orders_sql",
             ...     postgres_repo,
             ...     meta={"type": "postgresql", "domain": "orders", "tags": ["sql", "transactional"]},
@@ -174,7 +174,7 @@ class XFile:
             TypeError: If any repository doesn't implement BaseRepository.
             
         Example:
-            >>> xfile.register_batch({
+            >>> xfiles.register_batch({
             ...     "users": users_repo,
             ...     "orders": (orders_repo, {"type": "sql", "domain": "orders"}),
             ...     "cache": (cache_repo, {"type": "redis"}),
@@ -276,7 +276,7 @@ class XFile:
             The repository instance if found and compatible, None otherwise.
             
         Example:
-            >>> repo = xfile.get_typed("users", QueryableRepository)
+            >>> repo = xfiles.get_typed("users", QueryableRepository)
             >>> if repo:
             ...     results = repo.find(query)
         """
@@ -350,10 +350,10 @@ class XFile:
             
         Example:
             >>> # Find all SQL repositories
-            >>> sql_repos = xfile.search(lambda m: m.get("type") in ("postgresql", "mysql"))
+            >>> sql_repos = xfiles.search(lambda m: m.get("type") in ("postgresql", "mysql"))
             >>> 
             >>> # Find repositories with specific tag
-            >>> cached = xfile.search(lambda m: "cache" in m.get("tags", []))
+            >>> cached = xfiles.search(lambda m: "cache" in m.get("tags", []))
         """
         results = []
         for entry in self._registry.values():
@@ -411,7 +411,7 @@ class XFile:
             
         Example:
             >>> # Find all MongoDB repositories in users domain
-            >>> repos = xfile.search_by_meta(type="mongodb", domain="users")
+            >>> repos = xfiles.search_by_meta(type="mongodb", domain="users")
         """
         def matcher(meta: Dict[str, Any]) -> bool:
             for key, value in criteria.items():
@@ -446,12 +446,12 @@ class XFile:
             
         Example:
             >>> # Find all repositories that support vector search
-            >>> vector_repos = xfile.search_by_capability(
+            >>> vector_repos = xfiles.search_by_capability(
             ...     lambda c: c.vector_search.supported
             ... )
             >>> 
             >>> # Find repos with native pushdown filtering
-            >>> pushdown_repos = xfile.search_by_capability(
+            >>> pushdown_repos = xfiles.search_by_capability(
             ...     lambda c: c.filter.supported and c.filter.pushdown
             ... )
         """
@@ -575,11 +575,11 @@ class XFile:
 
 
 # Alias for consistency with other managers
-RepositoryManager = XFile
+RepositoryManager = XFiles
 
 
 __all__ = [
-    "XFile",
+    "XFiles",
     "RepositoryManager",
     "RepositoryEntry",
 ]

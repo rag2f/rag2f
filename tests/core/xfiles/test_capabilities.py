@@ -1,6 +1,6 @@
 """Tests for Capabilities helper methods."""
 
-from rag2f.core.xfile import (
+from rag2f.core.xfiles import (
     Capabilities,
     FilterCapability,
     NativeCapability,

@@ -40,7 +40,7 @@ Johnny5     Morpheus                Spock       OptimusPrime
 Input       Plugins + Hooks         Config      Embedder registry
 Manager     (entry points + FS)                (embedders from plugins)
                            |
-                           +-------- XFile --------+
+                           +-------- XFiles --------+
                                     Repository registry
                                (SQL, vector DB, graph, etc.)
 ```
@@ -68,14 +68,14 @@ The names are constraints on design, not jokes. Registries and managers are the 
 - Morpheus: plugin and hook manager. The "reality adapter" that loads plugins and executes hooks.
 - Spock: configuration manager. Central, instance-scoped config (JSON + env).
 - OptimusPrime: embedder registry. Embedders are provided by plugins.
-- XFile: repository registry. The truth is out there.
+- XFiles: repository registry. The truth is out there.
 
 ## Plugin-first architecture
 
 Plugins are the primary extension mechanism. A plugin can provide:
 
 - Embedders (via OptimusPrime hooks)
-- Repositories (via XFile hooks)
+- Repositories (via XFiles hooks)
 - Additional hook implementations that change behavior
 
 Entry points are the production path; filesystem plugins are a local dev path. The core never hardcodes a specific backend.
@@ -85,13 +85,13 @@ Included plugin examples:
 - `plugins/rag2f_azure_openai_embedder`: embedder plugin using Spock for config.
 - `plugins/rag2f_macgyver`: in-memory plugin for fast local experiments.
 
-## XFile deep dive (repository manager)
+## XFiles deep dive (repository manager)
 
-XFile is the registry for heterogeneous repositories: SQL, vector DBs, document stores, graphs, or hybrids.
+XFiles is the registry for heterogeneous repositories: SQL, vector DBs, document stores, graphs, or hybrids.
 
 rag2f intentionally does not flatten tools into a lowest-common-denominator API. Instead, it enforces a minimal contract and allows opt-in advanced features.
 
-XFile exists in this repo and is tested extensively under `tests/core/xfile`.
+XFiles exists in this repo and is tested extensively under `tests/core/xfiles`.
 
 ### What is a repository in rag2f terms
 
@@ -115,12 +115,12 @@ If a backend has powerful native operations, expose them. A repository can surfa
 ### Minimal usage (conceptual)
 
 ```python
-from rag2f.core.xfile import XFile, QuerySpec, eq, and_
+from rag2f.core.xfiles import XFiles, QuerySpec, eq, and_
 
-xfile = XFile()
-xfile.register("users_db", users_repo, meta={"type": "postgresql", "domain": "users"})
+xfiles = XFiles()
+xfiles.register("users_db", users_repo, meta={"type": "postgresql", "domain": "users"})
 
-repo = xfile.get("users_db")
+repo = xfiles.get("users_db")
 query = QuerySpec(
     select=["id", "email"],
     where=and_(eq("status", "active"), eq("tier", "pro")),

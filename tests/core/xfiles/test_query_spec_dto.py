@@ -3,7 +3,7 @@
 import pytest
 from dataclasses import dataclass
 
-from rag2f.core.xfile.types import QuerySpec
+from rag2f.core.xfiles.types import QuerySpec
 
 
 class TestQuerySpecToDict:
