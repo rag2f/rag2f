@@ -17,22 +17,19 @@ Plugin-first RAG playground with 80s/90s movie nicknames to keep things fun:
 - Spock loads config from JSON/env; OptimusPrime keeps embedders; XFile keeps repositories.
 
 ## Async agents (Flux Capacitor + Operator)
-- Redis is the only backend for queue, state, and polling.
-- Canonical keys: `queue:{plugin_id}`, `job:{job_id}`, `job_children:{job_id}`, `job_parent:{job_id}`, `input_root:{input_id}`.
+- Backends for queue, state, and polling are provided by plugins; core stays storage-agnostic.
 - Queue messages are JSON with `{job_id, parent_job_id, root_input_id, plugin_id, hook, payload_ref, metadata}` — no raw payloads in messages.
-- `RedisJobStore` persists jobs and trees; `RedisQueue` pushes/pops messages; `JobStatusView` enforces completion: DONE only when the node and all descendants are DONE; any RUNNING/PENDING below reports RUNNING; any FAILED below reports FAILED.
-- `AgentWorker` is stateless: BRPOP on `queue:{plugin_id}`, resolve exactly one hook for that plugin, execute it, and optionally fan out children (`ChildJobRequest`) that share the same `root_input_id`.
-- Fan-out + polling are tree-based: children are registered under `job_children:{parent}`; `RedisJobStore.get_status_view(job_id)` returns the tree with status/progress.
+- Job stores persist jobs and trees; queues push/pop messages; `JobStatusView` enforces completion: DONE only when the node and all descendants are DONE; any RUNNING/PENDING below reports RUNNING; any FAILED below reports FAILED.
+- `AgentWorker` is stateless: dequeue for a plugin, resolve exactly one hook for that plugin, execute it, and optionally fan out children (`ChildJobRequest`) that share the same `root_input_id`.
+- Fan-out + polling are tree-based: children are tracked by parent, and `get_status_view(job_id)` returns the tree with status/progress.
 
-### Quick example (with fakeredis)
+### Quick example (with a custom backend)
 ```python
-import fakeredis.aioredis
 from rag2f import RAG2F
-from rag2f.core.flux_capacitor import RedisJobStore, RedisQueue, AgentWorker
+from rag2f.core.flux_capacitor import AgentWorker
 
-redis = fakeredis.aioredis.FakeRedis()
 rag2f = await RAG2F.create(plugins_folder="tests/mocks/plugins/")
-store, queue = RedisJobStore(redis), RedisQueue(redis)
+store, queue = MyJobStore(), MyQueue()
 
 job = await store.create_job(
     plugin_id="my_plugin",
@@ -42,7 +39,13 @@ job = await store.create_job(
 )
 await queue.enqueue(job)
 
-worker = AgentWorker(plugin_id="my_plugin", redis=redis, morpheus=rag2f.morpheus, rag2f=rag2f)
+worker = AgentWorker(
+    plugin_id="my_plugin",
+    job_store=store,
+    queue=queue,
+    morpheus=rag2f.morpheus,
+    rag2f=rag2f,
+)
 msg = await queue.dequeue("my_plugin", timeout=1)
 await worker._handle_message(msg)  # single hook execution
 
@@ -66,4 +69,4 @@ rag2f = await RAG2F.create(hooks=[my_embedder_hook])
 ## Dev notes
 - Requirements install per plugin: `Plugin.install_requirements(plugin_id, path)` (supports `pyproject.toml` or `requirements.txt`).
 - Settings: Spock reads JSON/env; plugin settings schema via `settings_model`/`settings_schema`.
-- Tests use fakeredis for async agents and mock plugins under `tests/mocks/plugins`.
+- Tests use in-memory backends for async agents and mock plugins under `tests/mocks/plugins`.

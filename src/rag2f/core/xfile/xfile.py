@@ -83,7 +83,7 @@ class XFile:
     Example:
         >>> xfile = XFile()
         >>> xfile.register("users_db", mongo_repo, meta={"type": "mongodb", "domain": "users"})
-        >>> xfile.register("cache", redis_repo, meta={"type": "redis", "purpose": "cache"})
+        >>> xfile.register("cache", cache_repo, meta={"type": "kv", "purpose": "cache"})
         >>> 
         >>> # Get by ID
         >>> users = xfile.get("users_db")
@@ -177,7 +177,7 @@ class XFile:
             >>> xfile.register_batch({
             ...     "users": users_repo,
             ...     "orders": (orders_repo, {"type": "sql", "domain": "orders"}),
-            ...     "cache": (cache_repo, {"type": "redis"}),
+            ...     "cache": (cache_repo, {"type": "kv"}),
             ... })
         """
         if repositories is None:

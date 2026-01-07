@@ -3,15 +3,12 @@ import inspect
 import logging
 from typing import Any, Awaitable, Callable, Dict, Iterable, List, Optional, Sequence
 
-from redis.asyncio import Redis
-
 from rag2f.core.flux_capacitor.jobs import (
     AgentHookResult,
     AsyncJob,
+    BaseJobStore,
+    BaseQueue,
     ChildJobRequest,
-    JobStatus,
-    RedisJobStore,
-    RedisQueue,
 )
 from rag2f.core.morpheus.morpheus import Morpheus
 
@@ -79,16 +76,16 @@ class AgentWorker:
         self,
         *,
         plugin_id: str,
-        redis: Redis,
+        job_store: BaseJobStore,
+        queue: BaseQueue,
         morpheus: Morpheus,
-        namespace: Optional[str] = None,
         rag2f: Any = None,
         payload_loader: Optional[PayloadLoader] = None,
         dequeue_timeout: int = 1,
     ):
         self.plugin_id = plugin_id
-        self.job_store = RedisJobStore(redis, namespace=namespace)
-        self.queue = RedisQueue(redis, namespace=namespace)
+        self.job_store = job_store
+        self.queue = queue
         self.morpheus = morpheus
         self.rag2f = rag2f
         self.payload_loader = payload_loader

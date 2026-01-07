@@ -1,12 +1,10 @@
 import asyncio
-import json
 import uuid
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
-
-from redis.asyncio import Redis
 
 
 class JobStatus(StrEnum):
@@ -102,37 +100,8 @@ class JobStatusView:
         }
 
 
-class RedisKeys:
-    """Helper to keep canonical Redis key naming with optional namespace."""
-
-    def __init__(self, namespace: Optional[str] = None):
-        self.namespace = namespace.strip() if namespace else None
-
-    def _prefix(self, key: str) -> str:
-        return f"{self.namespace}:{key}" if self.namespace else key
-
-    def queue(self, plugin_id: str) -> str:
-        return self._prefix(f"queue:{plugin_id}")
-
-    def job(self, job_id: str) -> str:
-        return self._prefix(f"job:{job_id}")
-
-    def job_children(self, job_id: str) -> str:
-        return self._prefix(f"job_children:{job_id}")
-
-    def job_parent(self, job_id: str) -> str:
-        return self._prefix(f"job_parent:{job_id}")
-
-    def input_root(self, input_id: str) -> str:
-        return self._prefix(f"input_root:{input_id}")
-
-
-class RedisJobStore:
-    """Redis-backed persistence for async jobs and their tree."""
-
-    def __init__(self, redis: Redis, *, namespace: Optional[str] = None):
-        self.redis = redis
-        self.keys = RedisKeys(namespace)
+class BaseJobStore(ABC):
+    """Storage-agnostic persistence for async jobs and their tree."""
 
     async def create_job(
         self,
@@ -166,59 +135,22 @@ class RedisJobStore:
         await self._persist_job(job)
         return job
 
+    @abstractmethod
     async def _persist_job(self, job: AsyncJob) -> None:
-        mapping = {
-            "job_id": job.job_id,
-            "parent_job_id": job.parent_job_id or "",
-            "root_input_id": job.root_input_id,
-            "plugin_id": job.plugin_id,
-            "hook": job.hook,
-            "payload_ref": json.dumps(job.payload_ref.to_dict() if job.payload_ref else None),
-            "metadata": json.dumps(job.metadata),
-            "status": job.status.value,
-        }
-        await self.redis.hset(self.keys.job(job.job_id), mapping=mapping)
-
-        if job.parent_job_id:
-            await self.redis.set(self.keys.job_parent(job.job_id), job.parent_job_id)
-            await self.redis.sadd(self.keys.job_children(job.parent_job_id), job.job_id)
-        else:
-            await self.redis.sadd(self.keys.input_root(job.root_input_id), job.job_id)
+        raise NotImplementedError
 
     async def attach_children(self, parent_job_id: str, children: Sequence[AsyncJob]) -> None:
         if not children:
             return
         await asyncio.gather(*(self._persist_job(child) for child in children))
 
+    @abstractmethod
     async def get_job(self, job_id: str) -> Optional[AsyncJob]:
-        data = await self.redis.hgetall(self.keys.job(job_id))
-        if not data:
-            return None
-        # Redis returns bytes
-        decoded = {k.decode(): v.decode() for k, v in data.items()}
-        payload_raw = decoded.get("payload_ref")
-        metadata_raw = decoded.get("metadata") or "{}"
-        return AsyncJob(
-            job_id=decoded["job_id"],
-            parent_job_id=decoded.get("parent_job_id") or None,
-            root_input_id=decoded["root_input_id"],
-            plugin_id=decoded["plugin_id"],
-            hook=decoded["hook"],
-            payload_ref=PayloadRef.from_mapping(json.loads(payload_raw)) if payload_raw else None,
-            metadata=json.loads(metadata_raw),
-            status=JobStatus(decoded.get("status", JobStatus.PENDING.value)),
-        )
+        raise NotImplementedError
 
+    @abstractmethod
     async def mark_status(self, job_id: str, status: JobStatus, *, error: Optional[str] = None) -> None:
-        updates: Dict[str, Any] = {"status": status.value}
-        if error is not None:
-            # Attach last_error inside metadata to avoid changing message schema
-            existing = await self.get_job(job_id)
-            meta = existing.metadata if existing else {}
-            meta = dict(meta)
-            meta["last_error"] = error
-            updates["metadata"] = json.dumps(meta)
-        await self.redis.hset(self.keys.job(job_id), mapping=updates)
+        raise NotImplementedError
 
     async def mark_running(self, job_id: str) -> None:
         await self.mark_status(job_id, JobStatus.RUNNING)
@@ -229,17 +161,17 @@ class RedisJobStore:
     async def mark_failed(self, job_id: str, *, reason: Optional[str] = None) -> None:
         await self.mark_status(job_id, JobStatus.FAILED, error=reason)
 
+    @abstractmethod
     async def get_children_ids(self, job_id: str) -> List[str]:
-        raw = await self.redis.smembers(self.keys.job_children(job_id))
-        return sorted({val.decode() for val in raw})
+        raise NotImplementedError
 
+    @abstractmethod
     async def get_root_jobs(self, input_id: str) -> List[str]:
-        raw = await self.redis.smembers(self.keys.input_root(input_id))
-        return sorted({val.decode() for val in raw})
+        raise NotImplementedError
 
+    @abstractmethod
     async def get_parent_id(self, job_id: str) -> Optional[str]:
-        value = await self.redis.get(self.keys.job_parent(job_id))
-        return value.decode() if value else None
+        raise NotImplementedError
 
     async def get_status_view(self, job_id: str) -> JobStatusView:
         job = await self.get_job(job_id)
@@ -299,25 +231,18 @@ class RedisJobStore:
         return done, total
 
 
-class RedisQueue:
-    """Redis-backed message queue (Operator)."""
+class BaseQueue(ABC):
+    """Storage-agnostic message queue (Operator)."""
 
-    def __init__(self, redis: Redis, *, namespace: Optional[str] = None):
-        self.redis = redis
-        self.keys = RedisKeys(namespace)
-
+    @abstractmethod
     async def enqueue(self, job: AsyncJob) -> None:
-        await self.redis.lpush(self.keys.queue(job.plugin_id), json.dumps(job.message()))
+        raise NotImplementedError
 
     async def enqueue_many(self, jobs: Iterable[AsyncJob]) -> None:
         tasks = [self.enqueue(job) for job in jobs]
         if tasks:
             await asyncio.gather(*tasks)
 
+    @abstractmethod
     async def dequeue(self, plugin_id: str, *, timeout: int = 0) -> Optional[Dict[str, Any]]:
-        result = await self.redis.brpop(self.keys.queue(plugin_id), timeout=timeout)
-        if not result:
-            return None
-        _, raw_message = result
-        payload = raw_message.decode()
-        return json.loads(payload)
+        raise NotImplementedError

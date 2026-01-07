@@ -23,7 +23,6 @@ dependencies = [
     "python-dotenv",
     "pydantic",
     "packaging",
-    "redis>=5.0",
 ]
 
 [project.optional-dependencies]
