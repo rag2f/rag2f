@@ -86,33 +86,6 @@ def test_activate_plugin(plugin):
     assert not hasattr(plugin, "custom_deactivation_executed")
 
 
-def test_settings_schema(plugin):
-    settings_schema = plugin.settings_schema()
-    assert isinstance(settings_schema, dict)
-    assert settings_schema["properties"] == {}
-    assert settings_schema["title"] == "PluginSettingsModel"
-    assert settings_schema["type"] == "object"
-
-
-def test_load_settings_without_manager(plugin):
-    settings = plugin.load_settings()
-    assert settings == {}
-
-
-def test_load_settings_from_spock(plugin, rag2f):
-    rag2f.spock.set_plugin_config(plugin.id, "a", 42)
-    settings = plugin.load_settings(rag2f=rag2f)
-    assert settings == {"a": 42}
-
-
-def test_save_settings(plugin, rag2f):
-    fake_settings = {"a": 42}
-    saved = plugin.save_settings(fake_settings, rag2f=rag2f)
-
-    assert saved["a"] == fake_settings["a"]
-    assert rag2f.spock.get_plugin_config(plugin.id, "a") == 42
-
-
 # utility to obtain installed python packages
 def list_packages():
     result = subprocess.run(["uv", "pip", "list", "--system"], stdout=subprocess.PIPE)

@@ -11,16 +11,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Empty class to represent basic plugin Settings model
-class PluginSettingsModel(BaseModel):
-    pass
-
-
-# this class represents a plugin in memory
-# the plugin itsefl is managed as much as possible unix style
-#      (i.e. by saving information in the folder itself)
-
-
 
 # Helper class to handle dependency installation logic
 class PackageInstaller:

@@ -5,12 +5,10 @@ import json
 import glob
 import importlib
 import importlib.util
-from typing import Dict, List
+from typing import List
 from inspect import getmembers
-from pydantic import BaseModel, ValidationError
-from packaging.requirements import Requirement
 import inflection
-from rag2f.core.morpheus.package_installer import PackageInstaller, PluginSettingsModel
+from rag2f.core.morpheus.package_installer import PackageInstaller
 from rag2f.core.morpheus.decorators import PillHook
 from rag2f.core.morpheus.decorators.plugin_decorator import PillPluginDecorator
 from rag2f.core.morpheus.plugin_manifest import PluginManifest
@@ -80,86 +78,6 @@ class Plugin:
         # run custom activation from @plugin
         if "activated" in self.overrides:
             self.overrides["activated"].function(self)
-
-    # get plugin settings JSON schema
-    def settings_schema(self):
-        # is "settings_schema" hook defined in the plugin?
-        if "settings_schema" in self.overrides:
-            return self.overrides["settings_schema"].function()
-        else:
-            # if the "settings_schema" is not defined but
-            # "settings_model" is it gets the schema from the model
-            if "settings_model" in self.overrides:
-                return self.overrides["settings_model"].function().model_json_schema()
-
-        # default schema (empty)
-        return PluginSettingsModel.model_json_schema()
-
-    # get plugin settings Pydantic model
-    def settings_model(self):
-        # is "settings_model" hook defined in the plugin?
-        if "settings_model" in self.overrides:
-            return self.overrides["settings_model"].function()
-
-        # default schema (empty)
-        return PluginSettingsModel
-
-    def _resolve_config_manager(self, *, rag2f=None, spock=None):
-        """Resolve the Spock config manager from either an explicit argument or a rag2f instance."""
-        if spock is not None:
-            return spock
-        if rag2f is not None and hasattr(rag2f, "spock"):
-            return rag2f.spock
-        return None
-
-    # load plugin settings
-    def load_settings(self, *, rag2f=None, spock=None):
-        # is "settings_load" hook defined in the plugin?
-        if "load_settings" in self.overrides:
-            return self.overrides["load_settings"].function()
-
-        config_manager = self._resolve_config_manager(rag2f=rag2f, spock=spock)
-        if config_manager is not None:
-            settings = config_manager.get_plugin_config(self._id)
-            logger.debug(
-                "Loaded settings for plugin %s from Spock (%d keys)",
-                self._id,
-                len(settings),
-            )
-            return settings
-
-        # default behaviour: no settings persistence handled here
-        logger.debug(
-            "Plugin %s skipping settings.json management; returning empty settings",
-            self._id,
-        )
-        return {}
-
-    # save plugin settings
-    def save_settings(self, settings: Dict, *, rag2f=None, spock=None):
-        # is "settings_save" hook defined in the plugin?
-        if "save_settings" in self.overrides:
-            return self.overrides["save_settings"].function(settings)
-
-        config_manager = self._resolve_config_manager(rag2f=rag2f, spock=spock)
-        if config_manager is not None:
-            for key, value in settings.items():
-                config_manager.set_plugin_config(self._id, key, value)
-            updated_settings = config_manager.get_plugin_config(self._id)
-            logger.debug(
-                "Saved settings for plugin %s via Spock (%d keys)",
-                self._id,
-                len(updated_settings),
-            )
-            return updated_settings
-
-        # default behaviour: in-memory merge only, no file persistence
-        merged_settings = {**self.load_settings(), **settings}
-        logger.debug(
-            "Plugin %s settings persistence disabled; returning merged settings only",
-            self._id,
-        )
-        return merged_settings
 
     def _load_manifest(self) -> PluginManifest:
         
@@ -298,7 +216,7 @@ class Plugin:
         self._plugin_overrides = {override.name: override for override in list(map(self._clean_plugin_override, plugin_overrides))}
 
         
-
+#
     def plugin_specific_error_message(self):
         name = self.manifest.name
         url = self.manifest.plugin_url
@@ -361,7 +279,3 @@ class Plugin:
     @property
     def overrides(self):
         return self._plugin_overrides
-    
-    @property
-    def settings_file_path(self):
-        return os.path.join(self._path, "settings.json")
