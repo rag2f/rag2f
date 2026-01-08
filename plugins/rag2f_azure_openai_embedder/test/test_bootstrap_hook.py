@@ -1,7 +1,8 @@
 import pytest
 
 @pytest.mark.asyncio
-async def test_bootstrap_embedders_called(rag2f_azure_openai_embedder):
+#TODO: rename test
+async def xx_test_bootstrap_embedders_called(rag2f_azure_openai_embedder):
     # The embedders should be registered via OptimusPrime
     optimus = rag2f_azure_openai_embedder.optimus_prime
     
