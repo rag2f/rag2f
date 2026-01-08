@@ -4,26 +4,6 @@ from typing import Any, ClassVar, Dict, Iterable, Mapping
 
 from pydantic import BaseModel
 
-#TODO: pyproject or plugin compile have same info, remove?
-# The properties accepted in the [project] section of pyproject.toml are defined by the PEP 621 standard. The main ones are:
-# name
-# version (o dynamic)
-# description
-# readme
-# requires-python
-# license
-# authors
-# maintainers
-# keywords
-# classifiers
-# urls (can be a dictionary of urls, e.g.: {"Homepage" = "...", "Repository" = "..."})
-# dependencies
-# optional-dependencies
-# You can find the official and detailed description of all properties here:
-# https://peps.python.org/pep-0621/
-
-
-
 class PluginManifest(BaseModel):
     #id: str id plugin set and defined from Morpheus Plugin class
     name: str
