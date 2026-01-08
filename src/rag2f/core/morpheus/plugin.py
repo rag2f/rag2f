@@ -5,9 +5,12 @@ import json
 import glob
 import importlib
 import importlib.util
+import re
+from pathlib import Path
 from typing import List
 from inspect import getmembers
 import inflection
+import importlib.metadata
 from rag2f.core.morpheus.package_installer import PackageInstaller
 from rag2f.core.morpheus.decorators import PillHook
 from rag2f.core.morpheus.decorators.plugin_decorator import PillPluginDecorator
@@ -27,6 +30,9 @@ class Plugin:
                 f"{plugin_path} does not exist or is not a folder. Cannot create Plugin."
             )
 
+        # ----------------------------
+        # Source type detection
+        # ----------------------------
         # where the plugin is on disk
         self._path: str = plugin_path
 
@@ -80,26 +86,393 @@ class Plugin:
             self.overrides["activated"].function(self)
 
     def _load_manifest(self) -> PluginManifest:
-        
-        plugin_json_metadata_file_name = "plugin.json"
-        plugin_json_metadata_file_path = os.path.join(
-            self._path, plugin_json_metadata_file_name
+        plugin_path = Path(self._path)
+        path_str = str(plugin_path)
+        is_pip_like = "site-packages" in path_str or "dist-packages" in path_str
+        logger.info(
+            "Loading plugin manifest for '%s' (source=%s)",
+            self._id,
+            "pip" if is_pip_like else "fs",
         )
-        json_file_data = {}
 
-        if os.path.isfile(plugin_json_metadata_file_path):
+        plugin_json_paths = self._discover_metadata_files(plugin_path, "plugin.json")
+        pyproject_paths = self._discover_metadata_files(plugin_path, "pyproject.toml")
+
+        plugin_json_path = plugin_json_paths[0] if plugin_json_paths else None
+        pyproject_path = pyproject_paths[0] if pyproject_paths else None
+
+        logger.info(
+            "Discovered metadata for '%s': plugin.json=%s, pyproject.toml=%s",
+            self._id,
+            str(plugin_json_path) if plugin_json_path else "<missing>",
+            str(pyproject_path) if pyproject_path else "<missing>",
+        )
+
+        base: dict = {}
+        override: dict = {}
+        fallback: dict = {}
+        requirements: list[str] = []
+        rag2f_bounds_origin: str = "Unknown"
+
+        if plugin_json_path is not None:
+            data = self._read_json_file(plugin_json_path)
+            base = self._map_plugin_json_to_manifest(data)
+
+        if pyproject_path is not None:
+            data = self._read_toml_file(pyproject_path)
+            override = self._map_pyproject_to_manifest(data)
+            requirements.extend(self._extract_pyproject_dependencies(data))
+
+        if base:
+            json_min = PluginManifest.normalize_str(base.get("min_rag2f_version"))
+            json_max = PluginManifest.normalize_str(base.get("max_rag2f_version"))
+            json_bounds_set = bool(json_min or json_max)
+            if json_bounds_set:
+                rag2f_bounds_origin = "JSON"
+        else:
+            json_bounds_set = False
+
+        distribution = None
+        if is_pip_like:
+            distribution = self._resolve_distribution_for_plugin(plugin_path)
+            if distribution is not None:
+                dist_name = distribution.metadata.get("Name", "<unknown>")
+                logger.info("Resolved distribution for '%s': %s", self._id, dist_name)
+
+                dist_plugin_json = self._find_dist_file(distribution, "plugin.json")
+                if plugin_json_path is None and dist_plugin_json is not None:
+                    logger.info("Using plugin.json from distribution (FS missing): %s", dist_plugin_json)
+                    data = self._read_json_file(Path(dist_plugin_json))
+                    base = self._map_plugin_json_to_manifest(data)
+                    json_min = PluginManifest.normalize_str(base.get("min_rag2f_version"))
+                    json_max = PluginManifest.normalize_str(base.get("max_rag2f_version"))
+                    json_bounds_set = bool(json_min or json_max)
+                    if json_bounds_set:
+                        rag2f_bounds_origin = "JSON"
+
+                dist_pyproject = self._find_dist_file(distribution, "pyproject.toml")
+                if pyproject_path is None and dist_pyproject is not None:
+                    logger.info("Using pyproject.toml from distribution (FS missing): %s", dist_pyproject)
+                    data = self._read_toml_file(Path(dist_pyproject))
+                    override = self._map_pyproject_to_manifest(data)
+                    requirements.extend(self._extract_pyproject_dependencies(data))
+
+                fallback = self._map_distribution_metadata_to_manifest(distribution)
+                dist_requires = [r for r in (distribution.requires or []) if isinstance(r, str)]
+                requirements.extend(dist_requires)
+            else:
+                logger.warning("No distribution metadata found for '%s'", self._id)
+
+        merged = PluginManifest.override_if_non_empty(
+            base,
+            override,
+            exclude=("min_rag2f_version", "max_rag2f_version"),
+        )
+
+        overridden_by_pyproject = sorted({
+            key
+            for key, value in override.items()
+            if PluginManifest.normalize_str(value) is not None
+            and PluginManifest.normalize_str(base.get(key))
+            != PluginManifest.normalize_str(value)
+        })
+        if overridden_by_pyproject:
+            logger.info(
+                "Pyproject overrides for '%s': %s",
+                self._id,
+                ", ".join(overridden_by_pyproject),
+            )
+
+        if is_pip_like and fallback:
+            before_fallback = dict(merged)
+            merged = PluginManifest.apply_fallback_defaults(merged, fallback)
+            filled = sorted(
+                {
+                    k
+                    for k, v in merged.items()
+                    if PluginManifest.normalize_str(v) != PluginManifest.normalize_str(before_fallback.get(k))
+                    and k in fallback
+                }
+            )
+            if filled:
+                logger.info("Distribution metadata fallback filled for '%s': %s", self._id, ", ".join(filled))
+
+        # name resolution: try sources, else humanize id
+        normalized_name = PluginManifest.normalize_str(merged.get("name"))
+        if normalized_name is None:
+            merged["name"] = inflection.humanize(self.id)
+            logger.warning(
+                "Manifest name missing for '%s'; defaulting to humanized id '%s'",
+                self._id,
+                merged["name"],
+            )
+
+        if not json_bounds_set:
+            min_v, max_v, origin = self._derive_rag2f_bounds_from_requirements(requirements)
+            if origin != "Unknown":
+                rag2f_bounds_origin = origin
+            if PluginManifest.normalize_str(merged.get("min_rag2f_version")) is None and min_v is not None:
+                merged["min_rag2f_version"] = min_v
+            if PluginManifest.normalize_str(merged.get("max_rag2f_version")) is None and max_v is not None:
+                merged["max_rag2f_version"] = max_v
+
+        logger.info(
+            "rag2f bounds for '%s': origin=%s min=%s max=%s",
+            self._id,
+            rag2f_bounds_origin,
+            merged.get("min_rag2f_version", "Unknown"),
+            merged.get("max_rag2f_version", "Unknown"),
+        )
+
+        return PluginManifest(**merged)
+
+    # ----------------------------
+    # Helpers (no new dependencies)
+    # ----------------------------
+    def _read_json_file(self, path: Path) -> dict:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            raise Exception(f"Invalid JSON in {path}: {type(e).__name__}: {e}")
+
+    def _read_toml_file(self, path: Path) -> dict:
+        try:
             try:
-                json_file = open(plugin_json_metadata_file_path)
-                json_file_data = json.load(json_file)
-                json_file.close()
-            except Exception:
-                logger.debug(
-                    f"Loading plugin {self._path} metadata, defaulting to generated values"
-                )
+                import tomllib  # py3.11+
+            except ModuleNotFoundError:  # pragma: no cover
+                import tomli as tomllib  # type: ignore
 
-        if "name" not in json_file_data:
-            json_file_data["name"] = inflection.humanize(self.id)
-        return PluginManifest(**json_file_data)
+            with open(path, "rb") as f:
+                return tomllib.load(f)
+        except Exception as e:
+            raise Exception(f"Invalid TOML in {path}: {type(e).__name__}: {e}")
+
+    def _map_plugin_json_to_manifest(self, data: dict) -> dict:
+        out: dict = {}
+
+        out["name"] = PluginManifest.normalize_str(data.get("name"))
+        out["version"] = PluginManifest.normalize_str(data.get("version"))
+        out["keywords"] = PluginManifest.join_keywords(data.get("keywords"))
+        out["description"] = PluginManifest.normalize_str(data.get("description"))
+        out["license"] = PluginManifest.normalize_str(data.get("license"))
+        out["urls"] = PluginManifest.serialize_urls(data.get("urls"))
+        out["min_rag2f_version"] = PluginManifest.normalize_str(data.get("min_rag2f_version"))
+        out["max_rag2f_version"] = PluginManifest.normalize_str(data.get("max_rag2f_version"))
+
+        # author mapping (supports legacy author object)
+        out["author_name"] = PluginManifest.normalize_str(data.get("author_name"))
+        out["author_email"] = PluginManifest.normalize_str(data.get("author_email"))
+
+        author_obj = data.get("author")
+        if (out.get("author_name") is None or out.get("author_email") is None) and isinstance(author_obj, dict):
+            if out.get("author_name") is None:
+                out["author_name"] = PluginManifest.normalize_str(author_obj.get("name"))
+            if out.get("author_email") is None:
+                out["author_email"] = PluginManifest.normalize_str(author_obj.get("email"))
+
+        # Remove unset fields so defaults apply cleanly
+        return {k: v for k, v in out.items() if v is not None}
+
+    def _map_pyproject_to_manifest(self, data: dict) -> dict:
+        project = data.get("project") if isinstance(data, dict) else None
+        if not isinstance(project, dict):
+            return {}
+
+        out: dict = {}
+        out["name"] = PluginManifest.normalize_str(project.get("name"))
+
+        # version may be dynamic; if not a string, skip
+        version = project.get("version")
+        out["version"] = PluginManifest.normalize_str(version) if isinstance(version, str) else None
+
+        out["description"] = PluginManifest.normalize_str(project.get("description"))
+        out["keywords"] = PluginManifest.join_keywords(project.get("keywords"))
+
+        # authors: first element
+        authors = project.get("authors")
+        if isinstance(authors, list) and authors:
+            first = authors[0]
+            if isinstance(first, dict):
+                out["author_name"] = PluginManifest.normalize_str(first.get("name"))
+                out["author_email"] = PluginManifest.normalize_str(first.get("email"))
+
+        # license: string or table
+        lic = project.get("license")
+        if isinstance(lic, str):
+            out["license"] = PluginManifest.normalize_str(lic)
+        elif isinstance(lic, dict):
+            out["license"] = PluginManifest.normalize_str(lic.get("text")) or PluginManifest.normalize_str(lic.get("file"))
+
+        out["urls"] = PluginManifest.serialize_urls(project.get("urls"))
+
+        return {k: v for k, v in out.items() if v is not None}
+
+    def _extract_pyproject_dependencies(self, data: dict) -> list[str]:
+        project = data.get("project") if isinstance(data, dict) else None
+        if not isinstance(project, dict):
+            return []
+        deps = project.get("dependencies")
+        if not isinstance(deps, list):
+            return []
+        return [d for d in deps if isinstance(d, str)]
+
+    def _map_distribution_metadata_to_manifest(self, dist: importlib.metadata.Distribution) -> dict:
+        md = dist.metadata
+        out: dict = {}
+
+        out["name"] = PluginManifest.normalize_str(md.get("Name"))
+        out["version"] = PluginManifest.normalize_str(getattr(dist, "version", None) or md.get("Version"))
+        out["description"] = PluginManifest.normalize_str(md.get("Summary"))
+        out["author_name"] = PluginManifest.normalize_str(md.get("Author"))
+        out["author_email"] = PluginManifest.normalize_str(md.get("Author-email"))
+        out["license"] = PluginManifest.normalize_str(md.get("License"))
+        out["keywords"] = PluginManifest.normalize_str(md.get("Keywords"))
+
+        # URLs: Home-page + Project-URL (may repeat)
+        urls_parts: list[str] = []
+        home = PluginManifest.normalize_str(md.get("Home-page"))
+        if home:
+            urls_parts.append(f"Homepage={home}")
+        project_urls = []
+        try:
+            project_urls = md.get_all("Project-URL") or []
+        except Exception:
+            project_urls = []
+        for entry in project_urls:
+            s = PluginManifest.normalize_str(entry)
+            if s:
+                urls_parts.append(s)
+        out["urls"] = ", ".join(urls_parts) if urls_parts else None
+
+        return {k: v for k, v in out.items() if v is not None}
+
+    def _discover_metadata_files(self, plugin_path: Path, name: str) -> list[Path]:
+        root_file = plugin_path / name
+        if root_file.is_file():
+            return [root_file]
+
+        candidates = [p for p in plugin_path.glob(f"**/{name}") if p.is_file()]
+        candidates.sort(key=lambda p: (len(p.relative_to(plugin_path).parents), str(p)))
+        return candidates
+
+    def _resolve_distribution_for_plugin(self, plugin_path: Path):
+        # Try by folder name and common normalizations
+        folder = plugin_path.name
+        candidates = {
+            folder,
+            folder.replace("_", "-"),
+            folder.replace("-", "_"),
+        }
+        if folder.startswith("rag2f_"):
+            candidates.add("rag2f-" + folder[len("rag2f_"):].replace("_", "-"))
+        if folder.startswith("rag2f-"):
+            candidates.add("rag2f_" + folder[len("rag2f-"):].replace("-", "_"))
+
+        for name in [c for c in candidates if c]:
+            try:
+                return importlib.metadata.distribution(name)
+            except importlib.metadata.PackageNotFoundError:
+                continue
+            except Exception:
+                continue
+
+        # Fallback: scan distributions and match files against package dir
+        try:
+            for dist in importlib.metadata.distributions():
+                files = dist.files or []
+                for f in files:
+                    p = str(f)
+                    # Match typical package layout
+                    if p.startswith(folder + "/"):
+                        return dist
+        except Exception:
+            return None
+        return None
+
+    def _find_dist_file(self, dist: importlib.metadata.Distribution, filename: str) -> str | None:
+        files = dist.files or []
+        matches: list[str] = []
+        for f in files:
+            p = str(f)
+            if p.endswith("/" + filename) or p == filename:
+                try:
+                    matches.append(str(dist.locate_file(f)))
+                except Exception:
+                    continue
+        return sorted(matches)[0] if matches else None
+
+    def _normalize_pkg_name(self, name: str) -> str:
+        return re.sub(r"[-_.]+", "", name).lower().strip()
+
+    def _derive_rag2f_bounds_from_requirements(self, requirements: list[str]) -> tuple[str | None, str | None, str]:
+        if not requirements:
+            return None, None, "Unknown"
+
+        min_v: str | None = None
+        max_v: str | None = None
+        eq_v: str | None = None
+
+        matched_any = False
+
+        for req in requirements:
+            if not isinstance(req, str):
+                continue
+            raw = req.split(";", 1)[0].strip()
+            if not raw:
+                continue
+            m = re.match(r"^\s*([A-Za-z0-9][A-Za-z0-9_.-]*)(\[[^\]]+\])?\s*(.*)$", raw)
+            if not m:
+                continue
+            name = m.group(1)
+            if self._normalize_pkg_name(name) != self._normalize_pkg_name("rag2f"):
+                continue
+
+            matched_any = True
+
+            spec_part = (m.group(3) or "").strip()
+            if not spec_part:
+                continue
+
+            # Split on commas, parse simple operators
+            parts = [p.strip() for p in spec_part.split(",") if p.strip()]
+
+            # If '==' is present in this requirement, it must set max only.
+            has_eq = any(re.match(r"^==\s*[^\s]+\s*$", p) for p in parts)
+
+            temp_min: str | None = None
+            temp_max: str | None = None
+            temp_eq: str | None = None
+
+            for part in parts:
+                mm = re.match(r"^(==|>=|>|<=|<|~=)\s*([^\s]+)\s*$", part)
+                if not mm:
+                    logger.warning("Unparseable rag2f requirement specifier: %s", part)
+                    continue
+                op, ver = mm.group(1), mm.group(2)
+                if op in (">=", ">"):
+                    if not has_eq:
+                        temp_min = ver  # policy: last declared wins
+                elif op in ("<=", "<"):
+                    temp_max = ver
+                elif op == "==":
+                    temp_eq = ver  # REQUIRED: max takes == (and min unchanged)
+                else:
+                    # ~= and others: do not infer max to avoid semantics
+                    continue
+
+            # Merge this requirement into running bounds
+            if temp_min is not None:
+                min_v = temp_min
+            if temp_eq is not None:
+                eq_v = temp_eq
+                max_v = temp_eq
+            elif temp_max is not None:
+                max_v = temp_max
+
+        if not matched_any:
+            return None, None, "Unknown"
+        return min_v, max_v, "Dependency"
 
 
     def _install_requirements(self):
@@ -202,7 +575,14 @@ class Plugin:
                     spec = importlib.util.spec_from_file_location(module_name, py_file)
                     plugin_module = importlib.util.module_from_spec(spec)
                     sys.modules[module_name] = plugin_module
-                    spec.loader.exec_module(plugin_module)
+                    try:
+                        spec.loader.exec_module(plugin_module)
+                    except Exception:
+                        # If execution fails, remove the partially-loaded module so
+                        # a subsequent load attempt isn't stuck reusing a broken module.
+                        if sys.modules.get(module_name) is plugin_module:
+                            del sys.modules[module_name]
+                        raise
 
                 hooks += getmembers(plugin_module, self._is_rag2f_hook)
                 plugin_overrides += getmembers(plugin_module, self._is_rag2f_plugin_override)
@@ -218,11 +598,26 @@ class Plugin:
         
 #
     def plugin_specific_error_message(self):
-        name = self.manifest.name
-        url = self.manifest.plugin_url
+        name = getattr(self.manifest, "name", None) or self._id
+
+        url = None
+        # Backward/forward compatibility: some manifests may expose plugin_url,
+        # current model exposes a generic 'urls' field.
+        if hasattr(self.manifest, "plugin_url"):
+            url = getattr(self.manifest, "plugin_url")
+        else:
+            url = getattr(self.manifest, "urls", None)
+
+        if isinstance(url, str):
+            url = url.strip()
+            if not url or url.lower() == "unknown":
+                url = None
 
         if url:
-            return f"To resolve any problem related to {name} plugin, contact the creator using github issue at the link {url}"
+            return (
+                f"To resolve any problem related to {name} plugin, contact the creator using "
+                f"issue system ( es: github issue ) at the link {url}"
+            )
         return f"Error in {name} plugin, contact the creator"
 
 

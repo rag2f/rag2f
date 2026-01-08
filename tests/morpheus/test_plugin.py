@@ -47,7 +47,7 @@ def test_create_plugin(plugin):
     # manifest
     assert isinstance(plugin.manifest, PluginManifest)
     assert plugin.manifest.name == "Mock plugin"
-    assert "Description not found" in plugin.manifest.description
+    assert plugin.manifest.version == "0.0.0"
 
     # hooks
     assert len(plugin.hooks) == get_mock_plugin_info()["hooks"]
