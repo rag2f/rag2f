@@ -25,15 +25,15 @@ class PluginManifest(BaseModel):
     #id: str id plugin set and defined from Morpheus Plugin class
     name: str
     version: str = "0.0.0"
-    thumb: str = None
-    tags: str = "Unknown"
+    keywords: str = "Unknown"
     description: str = (
         "Description not found for this plugin."
         "Please create a plugin.json manifest"
         " in the plugin folder."
     )
     author_name: str = "Unknown"
-    author_url: str = "Unknown"
-    plugin_url: str = "Unknown"
+    author_email: str = "Unknown"
+    urls: str = "Unknown"
+    license: str = "Unknown"
     min_rag2f_version: str = "Unknown"
     max_rag2f_version: str = "Unknown"
