@@ -34,7 +34,7 @@ jobs:
 
       - name: Install dependencies and test requirements
         run: |
-          pip install -e '.[dev]'
+          pip install uv && uv pip install --system -e '.[dev]'
 
       - name: Run tests
         run: |
