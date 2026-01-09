@@ -189,13 +189,27 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           echo "::group::Smoke test - installing from TestPyPI"
-          sleep 30
           python -m venv test-env
           source test-env/bin/activate
           DEV_VERSION="${{ steps.dev_version.outputs.version }}"
-          pip install --index-url https://test.pypi.org/simple/ \
-                --extra-index-url https://pypi.org/simple/ \
-                rag2f==$DEV_VERSION
+          python -m pip install --upgrade pip
+
+          # TestPyPI can take a while to propagate new files to the /simple index (what pip uses).
+          # Retry installs to avoid flaky failures.
+          max_attempts=20
+          sleep_seconds=10
+          attempt=1
+          until pip install --no-cache-dir --index-url https://test.pypi.org/simple/ \
+                  --extra-index-url https://pypi.org/simple/ \
+                  rag2f=="$DEV_VERSION"; do
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "❌ ERROR: rag2f==$DEV_VERSION not available on TestPyPI simple index after $((max_attempts * sleep_seconds))s"
+              exit 1
+            fi
+            echo "⚠️  rag2f==$DEV_VERSION not available yet (attempt $attempt/$max_attempts). Sleeping ${sleep_seconds}s..."
+            attempt=$((attempt + 1))
+            sleep "$sleep_seconds"
+          done
           python -c "
           import rag2f
           print('✅ Successfully imported rag2f')

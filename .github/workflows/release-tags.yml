@@ -209,10 +209,22 @@ jobs:
       - name: Smoke test - Install and verify
         run: |
           echo "::group::Smoke test - installing from PyPI"
-          sleep 60
           python -m venv test-env
           source test-env/bin/activate
-          pip install rag2f==${{ steps.version.outputs.version }}
+          python -m pip install --upgrade pip
+          VERSION="${{ steps.version.outputs.version }}"
+          max_attempts=20
+          sleep_seconds=30
+          attempt=1
+          until pip install --no-cache-dir rag2f=="$VERSION"; do
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "❌ ERROR: rag2f==$VERSION not available on PyPI simple index after $((max_attempts * sleep_seconds))s"
+              exit 1
+            fi
+            echo "⚠️  rag2f==$VERSION not available yet (attempt $attempt/$max_attempts). Sleeping ${sleep_seconds}s..."
+            attempt=$((attempt + 1))
+            sleep "$sleep_seconds"
+          done
           python -c "
           import rag2f
           print('✅ Successfully imported rag2f')
@@ -220,7 +232,7 @@ jobs:
               print(f'__version__: {getattr(rag2f, '__version__', None)}')
               print(f'__commit__: {getattr(rag2f, '__commit__', None)}')
               print(f'__distance__: {getattr(rag2f, '__distance__', None)}')
-              expected = '${{ steps.version.outputs.version }}'
+              expected = '$VERSION'
               if rag2f.__version__ != expected:
                   print(f'❌ Version mismatch! Expected {expected}, got {rag2f.__version__}')
                   exit(1)
