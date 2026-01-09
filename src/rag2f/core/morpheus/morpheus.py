@@ -35,12 +35,6 @@ class Morpheus:
         self.on_refresh_callbacks: List[Callable] = []
         
         logger.debug("Morpheus instance created with plugins_folder: %s", self.plugins_folder)
-
-    @classmethod
-    async def create(cls, rag2f_instance: 'RAG2F', plugins_folder: str | None = None):
-        instance = cls(rag2f_instance, plugins_folder=plugins_folder)
-        await instance.find_plugins()
-        return instance
     
     # discover all plugins from both entry points and filesystem
     async def find_plugins(self):

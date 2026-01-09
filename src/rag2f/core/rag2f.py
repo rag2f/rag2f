@@ -12,14 +12,17 @@ load_dotenv()
 
 class RAG2F:
     """Core facade for the RAG2F application.
-
-    RAG2F delegates input handling to a Johnny5 instance. Johnny5 is a small
-    helper class with deterministic, side-effect-free methods which makes unit
-    testing of input handling easier.
-    Each RAG2F instance maintains its own unique Morpheus instance for
-    orchestrating knowledge transformations and Spock instance for configuration.
     """
-    def __init__(self, plugins_folder: str | None = None, config_path: str | None = None):
+    def __init__(self, *args, **kwargs):
+        raise RuntimeError("Use: instance = await RAG2F.create(...)")
+
+    def _initialize(self, *, plugins_folder: str | None = None, config_path: str | None = None):
+        """Initialize RAG2F internal components.
+        
+        Args:
+            plugins_folder: Path to plugins directory
+            config_path: Path to JSON configuration file
+        """
         self.spock = Spock(config_path=config_path)
         self.johnny5 = Johnny5(rag2f_instance=self)
         self.morpheus = Morpheus(self, plugins_folder=plugins_folder)
@@ -41,8 +44,10 @@ class RAG2F:
         Args:
             plugins_folder: Path to plugins directory
             config_path: Path to JSON configuration file
+            config: Optional configuration dictionary
         """
-        instance = cls(plugins_folder=plugins_folder, config_path=config_path)
+        instance = cls.__new__(cls)  # bypass __init__
+        instance._initialize(plugins_folder=plugins_folder, config_path=config_path)
         # Load configuration first
         instance.spock.load(config=config)
         # Then discover and activate plugins
