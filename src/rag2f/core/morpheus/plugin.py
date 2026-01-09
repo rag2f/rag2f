@@ -1,4 +1,3 @@
-
 import os
 import sys
 import json
@@ -6,6 +5,8 @@ import glob
 import importlib
 import importlib.util
 import re
+import inspect
+import inspect
 from pathlib import Path
 from typing import List
 from inspect import getmembers
@@ -16,6 +17,10 @@ from rag2f.core.morpheus.decorators import PillHook
 from rag2f.core.morpheus.decorators.plugin_decorator import PillPluginDecorator
 from rag2f.core.morpheus.plugin_manifest import PluginManifest
 import logging
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from rag2f.core.rag2f import RAG2F
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +28,9 @@ logger = logging.getLogger(__name__)
 # the plugin itsefl is managed as much as possible unix style
 #      (i.e. by saving information in the folder itself)
 class Plugin:
-    def __init__(self, plugin_path: str):
+    def __init__(self, rag2f_instance: 'RAG2F', plugin_path: str):
+        self._rag2f_instance = rag2f_instance  # Store reference to RAG2F instance
+
         # does folder exist?
         if not os.path.exists(plugin_path) or not os.path.isdir(plugin_path):
             raise Exception(
@@ -83,7 +90,7 @@ class Plugin:
 
         # run custom activation from @plugin
         if "activated" in self.overrides:
-            self.overrides["activated"].function(self)
+            self.overrides["activated"].function(self,self._rag2f_instance)
 
     def _load_manifest(self) -> PluginManifest:
         plugin_path = Path(self._path)

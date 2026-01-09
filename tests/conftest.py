@@ -37,3 +37,13 @@ async def rag2f():
 @pytest_asyncio.fixture(scope="session")
 async def morpheus(rag2f):
     return rag2f.morpheus
+
+
+@pytest.fixture(scope="function")
+def fresh_morpheus(rag2f):
+	"""Return a fresh Morpheus instance bound to the session rag2f.
+
+	Useful for tests that need to patch entry points / plugin discovery without
+	mutating the session-scoped Morpheus fixture.
+	"""
+	return Morpheus(rag2f, plugins_folder=f"{PATH_MOCK}/plugins/")

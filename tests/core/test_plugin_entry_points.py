@@ -1,44 +1,36 @@
 """Tests for plugin loading via entry points and filesystem."""
-import pytest
-import pytest_asyncio
 import os
-from unittest.mock import Mock, patch
 from importlib.metadata import EntryPoint
+from unittest.mock import Mock, patch
+import shutil
 
-from rag2f.core.morpheus.morpheus import Morpheus
-from rag2f.core import utils
-
-
-@pytest_asyncio.fixture
-async def morpheus_with_plugins():
-    """Create a Morpheus instance with plugins loaded."""
-    morpheus = await Morpheus.create()
-    return morpheus
+import pytest
+from tests.utils import PATH_MOCK
 
 
 @pytest.mark.asyncio
-async def test_filesystem_plugin_loading(morpheus_with_plugins):
+async def test_filesystem_plugin_loading(morpheus):
     """Test that plugins are loaded from filesystem in development mode."""
     # In test environment, plugins might not exist, so we just verify the mechanism works
     # The important test is that Morpheus can be created without errors
-    assert morpheus_with_plugins is not None, "Morpheus instance should be created"
+    assert morpheus is not None, "Morpheus instance should be created"
     
     # If plugins exist, they should be loaded correctly
-    if len(morpheus_with_plugins.plugins) > 0:
-        for plugin_id, plugin in morpheus_with_plugins.plugins.items():
+    if len(morpheus.plugins) > 0:
+        for plugin_id, plugin in morpheus.plugins.items():
             print(f"Plugin '{plugin_id}' loaded from: {plugin.path}")
             assert plugin.id == plugin_id, "Plugin ID should match dictionary key"
 
 
 @pytest.mark.asyncio
-async def test_entry_point_loading_mechanism():
+async def test_entry_point_loading_mechanism(fresh_morpheus):
     """Test that entry point loading mechanism works correctly."""
     # Create a mock entry point
     mock_entry_point = Mock(spec=EntryPoint)
     mock_entry_point.name = "test_plugin"
     
-    # Mock the plugin path function
-    test_plugin_path = os.path.join(utils.get_default_plugins_path(), "macgyver")
+    # Use a mock plugin shipped with the test suite
+    test_plugin_path = os.path.join(PATH_MOCK, "plugins", "mock_plugin")
     mock_entry_point.load.return_value = lambda: test_plugin_path
     
     # Test with mocked entry points
@@ -46,61 +38,59 @@ async def test_entry_point_loading_mechanism():
         # Configure mock to return our test entry point
         mock_ep.return_value = [mock_entry_point]
         
-        morpheus = Morpheus()
-        await morpheus._load_from_entry_points()
+        await fresh_morpheus._load_from_entry_points()
         
         # Verify the entry point was processed
         mock_entry_point.load.assert_called_once()
+        assert "mock_plugin" in fresh_morpheus.plugins, "mock_plugin should be loaded from entry point"
 
 
 @pytest.mark.asyncio
-async def test_plugin_priority_entry_points_over_filesystem():
+async def test_plugin_priority_entry_points_over_filesystem(tmp_path, fresh_morpheus):
     """Test that entry points have priority over filesystem when same plugin exists in both."""
     # This test verifies that if a plugin is loaded via entry point,
     # the filesystem version is skipped
     
-    # Create a mock entry point for macgyver
+    # Create a mock entry point for mock_plugin (also present on filesystem)
     mock_entry_point = Mock(spec=EntryPoint)
-    mock_entry_point.name = "rag2f_macgyver"
-    
-    # Point to the macgyver plugin root (not the rag2f_macgyver subfolder)
-    macgyver_path = os.path.join(utils.get_default_plugins_path(), "rag2f_macgyver")
-    
-    mock_entry_point.load.return_value = lambda: macgyver_path
+    mock_entry_point.name = "mock_plugin"
+
+    # Copy mock_plugin to a second location to prove entry point wins over filesystem
+    fs_plugin_path = os.path.join(PATH_MOCK, "plugins", "mock_plugin")
+    ep_plugin_path = os.path.join(str(tmp_path), "mock_plugin")
+    shutil.copytree(fs_plugin_path, ep_plugin_path)
+
+    mock_entry_point.load.return_value = lambda: ep_plugin_path
     
     with patch('rag2f.core.morpheus.morpheus.entry_points') as mock_ep:
         mock_ep.return_value = [mock_entry_point]
-        
-        morpheus = await Morpheus.create()
-        
-        # Verify macgyver was loaded
-        assert "rag2f_macgyver" in morpheus.plugins, "macgyver plugin should be loaded"
-        
-        # The plugin should only be loaded once (from entry point, not duplicated from filesystem)
-        # This is verified by the logging behavior in the actual implementation
-        plugin = morpheus.plugins["rag2f_macgyver"]
-        assert plugin.id == "rag2f_macgyver"
+
+        await fresh_morpheus.find_plugins()
+
+        assert "mock_plugin" in fresh_morpheus.plugins, "mock_plugin should be loaded"
+        plugin = fresh_morpheus.plugins["mock_plugin"]
+        assert plugin.id == "mock_plugin"
+        assert os.path.abspath(plugin.path) == os.path.abspath(ep_plugin_path), (
+            "Entry point plugin should take priority over filesystem"
+        )
 
 
 @pytest.mark.asyncio  
-async def test_backward_compatibility_filesystem_only():
+async def test_backward_compatibility_filesystem_only(fresh_morpheus):
     """Test that plugins still work when loaded from filesystem only (no entry points)."""
     # Mock entry_points to return empty list (no installed plugins)
     with patch('rag2f.core.morpheus.morpheus.entry_points') as mock_ep:
         mock_ep.return_value = []
-        
-        morpheus = await Morpheus.create()
-        
-        # The test verifies that the system works with no entry points
-        # Actual plugin loading from filesystem depends on test environment
-        assert morpheus is not None, "Morpheus should be created successfully"
-        
-        # Verify hooks dictionary exists (may be empty if no plugins in test env)
-        assert isinstance(morpheus.hooks, dict), "Hooks should be a dictionary"
+
+        await fresh_morpheus.find_plugins()
+
+        assert fresh_morpheus is not None, "Morpheus should be created successfully"
+        assert isinstance(fresh_morpheus.hooks, dict), "Hooks should be a dictionary"
+        assert "mock_plugin" in fresh_morpheus.plugins, "mock_plugin should be loaded from filesystem"
 
 
 @pytest.mark.asyncio
-async def test_invalid_entry_point_handling():
+async def test_invalid_entry_point_handling(fresh_morpheus):
     """Test that invalid entry points are handled gracefully."""
     # Create mock entry points with various invalid configurations
     # Use MagicMock to properly configure attributes
@@ -122,18 +112,16 @@ async def test_invalid_entry_point_handling():
     
     with patch('rag2f.core.morpheus.morpheus.entry_points') as mock_ep:
         mock_ep.return_value = invalid_entry_points
-        
-        morpheus = Morpheus()
-        
+
         # Should not raise exception, just log warnings/errors
-        await morpheus._load_from_entry_points()
+        await fresh_morpheus._load_from_entry_points()
         
         # No plugins should be loaded from invalid entry points
-        assert len(morpheus.plugins) == 0, "No plugins should be loaded from invalid entry points"
+        assert len(fresh_morpheus.plugins) == 0, "No plugins should be loaded from invalid entry points"
 
 
 @pytest.mark.asyncio
-async def test_site_packages_path_detection_with_underscore_name():
+async def test_site_packages_path_detection_with_underscore_name(fresh_morpheus):
     """Test that plugin is correctly located when entry point returns site-packages root with underscore naming.
     
     This tests the fix for when get_plugin_path() returns site-packages directory itself
@@ -166,9 +154,8 @@ async def test_site_packages_path_detection_with_underscore_name():
                 mock_exists.side_effect = exists_side_effect
                 mock_isdir.side_effect = isdir_side_effect
                 mock_ep.return_value = [mock_entry_point]
-                
-                morpheus = Morpheus()
-                await morpheus._load_from_entry_points()
+
+                await fresh_morpheus._load_from_entry_points()
                 
                 # The plugin should be found even though entry point returned site-packages
                 # Verify that the system looked for the plugin in site-packages/rag2f_openai_embedder
@@ -177,7 +164,7 @@ async def test_site_packages_path_detection_with_underscore_name():
 
 
 @pytest.mark.asyncio
-async def test_site_packages_path_detection_no_plugin_found():
+async def test_site_packages_path_detection_no_plugin_found(fresh_morpheus):
     """Test graceful handling when site-packages is returned but plugin directory not found.
     
     Tests that when get_plugin_path() returns site-packages but the actual plugin
@@ -197,10 +184,8 @@ async def test_site_packages_path_detection_no_plugin_found():
         with patch('os.path.exists', return_value=True):
             with patch('os.path.isdir', return_value=False):  # Plugin dir doesn't exist
                 mock_ep.return_value = [mock_entry_point]
-                
-                morpheus = Morpheus()
                 # Should not raise exception, just skip the plugin
-                await morpheus._load_from_entry_points()
+                await fresh_morpheus._load_from_entry_points()
                 
                 # No plugins should be loaded
-                assert len(morpheus.plugins) == 0, "Plugin should be skipped if directory not found"
+                assert len(fresh_morpheus.plugins) == 0, "Plugin should be skipped if directory not found"

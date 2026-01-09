@@ -22,7 +22,7 @@ class RAG2F:
     def __init__(self, plugins_folder: str | None = None, config_path: str | None = None):
         self.spock = Spock(config_path=config_path)
         self.johnny5 = Johnny5(rag2f_instance=self)
-        self.morpheus = Morpheus(plugins_folder=plugins_folder)
+        self.morpheus = Morpheus(self, plugins_folder=plugins_folder)
         self.optimus_prime = OptimusPrime(spock=self.spock)
         self.xfiles = XFiles(spock=self.spock)
 

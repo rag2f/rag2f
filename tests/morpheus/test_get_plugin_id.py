@@ -5,18 +5,21 @@ the behavior of walking the stack to find the first @hook decorated function.
 """
 import pytest
 from unittest.mock import Mock, MagicMock, patch
-import inspect
 
-from rag2f.core.morpheus.morpheus import Morpheus
 from rag2f.core.morpheus.decorators.hook import PillHook
 from rag2f.core.morpheus.plugin import Plugin
 
 
 @pytest.fixture
-def morpheus_instance():
-    """Create a Morpheus instance with mock plugins."""
-    morpheus = Morpheus(plugins_folder="/tmp/fake_plugins")
-    return morpheus
+def morpheus_instance(fresh_morpheus):
+    """Use the shared fixtures but keep state isolated per test."""
+    original_plugins = dict(fresh_morpheus.plugins)
+    original_hooks = dict(fresh_morpheus.hooks)
+    try:
+        yield fresh_morpheus
+    finally:
+        fresh_morpheus.plugins = original_plugins
+        fresh_morpheus.hooks = original_hooks
 
 
 def test_extract_plugin_id_from_hook_with_valid_hook(morpheus_instance):

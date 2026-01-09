@@ -1,5 +1,0 @@
-{
-    "name": "MacGyver",
-    "version": "0.0.1",
-    "description": "MacGyver is your go-to plugin for quick, local experiments. Lightweight and fully in-memory, it runs only on your machine with no external dependencies or persistence. Perfect for isolated tests and rapid prototypes, it does more with less—just like its namesake."
-}

@@ -22,18 +22,18 @@ def plugin(morpheus, rag2f):
     yield p
 
 
-def test_create_plugin_wrong_folder():
+def test_create_plugin_wrong_folder(rag2f):
     with pytest.raises(Exception) as e:
-        Plugin("/non/existent/folder")
+        Plugin(rag2f, "/non/existent/folder")
 
     assert "Cannot create" in str(e.value)
 
 
-def test_not_create_plugin_with_empty_folder():
+def test_not_create_plugin_with_empty_folder(rag2f):
     path = f"{PATH_MOCK}/empty_folder"
 
     with pytest.raises(Exception) as e:
-        Plugin(path)
+        Plugin(rag2f, path)
 
     assert "Cannot create" in str(e.value)
     
@@ -96,7 +96,7 @@ def list_packages():
     ("mock_plugin", "pip-install-test", "requirements.txt"),
     ("mock_plugin_pyproject", "pip-install-test", "pyproject.toml"),
 ])
-def test_install_plugin_dependencies_methods(plugin_folder, package_name, install_method):
+def test_install_plugin_dependencies_methods(plugin_folder, package_name, install_method, rag2f):
     """Test that plugin dependencies are installed during activation.
     
     This test verifies both installation methods work:
@@ -117,7 +117,7 @@ def test_install_plugin_dependencies_methods(plugin_folder, package_name, instal
     
     # Create a new plugin instance, which will trigger activation and dependency installation
     from rag2f.core.morpheus.plugin import Plugin
-    fresh_plugin = Plugin(f"{PATH_MOCK}/plugins/{plugin_folder}/")
+    fresh_plugin = Plugin(rag2f, f"{PATH_MOCK}/plugins/{plugin_folder}/")
     fresh_plugin.activate()
     
     # Verify the package was installed during activation
@@ -127,7 +127,7 @@ def test_install_plugin_dependencies_methods(plugin_folder, package_name, instal
 
 
 # Keep the old test for backward compatibility if needed
-def test_install_plugin_dependencies(plugin):
+def test_install_plugin_dependencies(plugin, rag2f):
     """Test that plugin dependencies from requirements.txt are installed (legacy test)."""
     subprocess.run(
         ["uv", "pip", "uninstall", "--system", "pip-install-test"], 
@@ -139,7 +139,7 @@ def test_install_plugin_dependencies(plugin):
     assert "pip-install-test" not in result_before
     
     from rag2f.core.morpheus.plugin import Plugin
-    fresh_plugin = Plugin(f"{PATH_MOCK}/plugins/mock_plugin/")
+    fresh_plugin = Plugin(rag2f, f"{PATH_MOCK}/plugins/mock_plugin/")
     fresh_plugin.activate()
     
     result_after = list_packages()

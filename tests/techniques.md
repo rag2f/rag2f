@@ -427,7 +427,7 @@ def test_complex_hook_chain():
 def test_plugin_loading_with_invalid_path():
     """Test that invalid plugin paths raise clear errors."""
     with pytest.raises(Exception) as exc_info:
-        Plugin("/non/existent/folder")
+        Plugin(rag2f,"/non/existent/folder")
     
     assert "Cannot create" in str(exc_info.value)
 ```

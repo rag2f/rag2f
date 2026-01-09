@@ -10,6 +10,10 @@ from rag2f.core import utils
 from rag2f.core.morpheus.decorators.hook import PillHook
 from .plugin import Plugin
 import logging
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from rag2f.core.rag2f import RAG2F
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +25,8 @@ class Morpheus:
     "What is real? How do you define 'real'? If you're talking about what you can feel, what you can smell, what you can taste and see, then 'real' is simply electrical signals interpreted by your brain"
     """
 
-    def __init__(self, plugins_folder: str | None = None):
+    def __init__(self, rag2f_instance: 'RAG2F', plugins_folder: str | None = None):
+        self._rag2f_instance = rag2f_instance  # Store reference to RAG2F instance
         self.plugins: Dict[str, Plugin] = {}  # plugins dictionary
         self.hooks: Dict[str, List[PillHook]] = {}  # hooks registered in the system
         self.plugins_folder = plugins_folder if plugins_folder is not None else utils.get_default_plugins_path()
@@ -32,8 +37,8 @@ class Morpheus:
         logger.debug("Morpheus instance created with plugins_folder: %s", self.plugins_folder)
 
     @classmethod
-    async def create(cls, plugins_folder: str | None = None):
-        instance = cls(plugins_folder=plugins_folder)
+    async def create(cls, rag2f_instance: 'RAG2F', plugins_folder: str | None = None):
+        instance = cls(rag2f_instance, plugins_folder=plugins_folder)
         await instance.find_plugins()
         return instance
     
@@ -108,7 +113,7 @@ class Morpheus:
                         continue
                 
                 # Create plugin from the returned path
-                plugin = Plugin(plugin_path)
+                plugin = Plugin(self._rag2f_instance, plugin_path)
                 
                 # Register plugin (entry points have priority over filesystem)
                 if plugin.id not in self.plugins:
@@ -136,7 +141,7 @@ class Morpheus:
         # Convert plugin folders to absolute paths
         for folder in all_plugin_folders:
             try:
-                plugin = Plugin(folder)
+                plugin = Plugin(self._rag2f_instance, folder)
                 
                 # Avoid duplicates (entry points have priority)
                 if plugin.id not in self.plugins:
