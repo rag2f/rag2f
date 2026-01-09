@@ -242,11 +242,9 @@ class Morpheus:
         try:
             stack = inspect.stack()
             
-            # Walk the stack from caller upwards (skip frame 0 which is self_plugin_id itself)
+            # Walk the stack from caller upwards (skip frame 0)
             # to find the first frame containing a function decorated with @hook
             for frame_info in stack[1:]:
-                if frame_info.function == 'self_plugin':
-                    continue
                 module = inspect.getmodule(frame_info.frame)
                 if module is None:
                     continue
@@ -260,6 +258,7 @@ class Morpheus:
             # No @hook found in the entire call stack
             raise RuntimeError(
                 "No @hook decorated function found in the call stack. "
+                "For @plugin decorated functions, use plugin.id instead. "
                 "This method must be called from within or through a @hook decorated function in a plugin."
             )
         
@@ -270,32 +269,19 @@ class Morpheus:
             raise RuntimeError(f"Failed to determine plugin: {e}") from e
 
 
-    def self_plugin(self):
-        """Get plugin object (used from within a plugin).
-        
-        This method is meant to be called from within hook functions decorated with @hook.
-        It uses self_plugin_id to determine which plugin is executing and returns
-        the corresponding Plugin object.
-        
-        Returns:
-            Plugin: The Plugin object of the calling hook function.
-        
-        Raises:
-            RuntimeError: If called from a non-hook context or from outside a valid plugin.
-        """
+    def get_plugin(self,plugin_id) -> Plugin:
+        """Get plugin by id."""
         try:
-            plugin_id = self.self_plugin_id()
-            if plugin_id not in self.plugins:
-                raise RuntimeError(
-                    f"Plugin '{plugin_id}' not found in loaded plugins. "
-                    f"Available plugins: {list(self.plugins.keys())}"
-                )
-            logger.debug(f"self_plugin() resolved to plugin '{plugin_id}'")
-            return self.plugins[plugin_id]
+            if self.plugin_exists(plugin_id):
+                return self.plugins[plugin_id]            
+            raise RuntimeError(
+                f"Plugin '{plugin_id}' not found in loaded plugins. "
+                f"Available plugins: {list(self.plugins.keys())}"
+            )
         except RuntimeError:
             raise
         except Exception as e:
-            logger.error(f"Error in self_plugin: {type(e).__name__}: {e}", exc_info=True)
+            logger.error(f"Error in get_plugin: {type(e).__name__}: {e}", exc_info=True)
             raise RuntimeError(f"Failed to determine plugin: {e}") from e
 
     def _extract_plugin_id_from_hook(self, module, hook_name: str) -> str | None:

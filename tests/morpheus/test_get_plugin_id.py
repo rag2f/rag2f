@@ -7,6 +7,7 @@ import pytest
 from unittest.mock import Mock, MagicMock, patch
 
 from rag2f.core.morpheus.decorators.hook import PillHook
+from rag2f.core.morpheus.morpheus import Morpheus
 from rag2f.core.morpheus.plugin import Plugin
 
 
@@ -22,7 +23,7 @@ def morpheus_instance(fresh_morpheus):
         fresh_morpheus.hooks = original_hooks
 
 
-def test_extract_plugin_id_from_hook_with_valid_hook(morpheus_instance):
+def test_extract_plugin_id_from_hook_with_valid_hook(morpheus_instance:Morpheus):
     """Test extracting plugin_id from a real hook in a real module."""
     # Create a real PillHook with plugin_id set
     def dummy_func():
@@ -44,7 +45,7 @@ def test_extract_plugin_id_from_hook_with_valid_hook(morpheus_instance):
     assert plugin_id == "test_plugin"
 
 
-def test_extract_plugin_id_from_hook_not_found(morpheus_instance):
+def test_extract_plugin_id_from_hook_not_found(morpheus_instance:Morpheus):
     """Test extracting plugin_id when hook name doesn't exist."""
     class FakeModule:
         __name__ = "fake_module"
@@ -55,7 +56,7 @@ def test_extract_plugin_id_from_hook_not_found(morpheus_instance):
     assert plugin_id is None
 
 
-def test_extract_plugin_id_from_hook_not_a_pill_hook(morpheus_instance):
+def test_extract_plugin_id_from_hook_not_a_pill_hook(morpheus_instance:Morpheus):
     """Test extracting plugin_id when attribute is not a PillHook."""
     class FakeModule:
         __name__ = "fake_module"
@@ -67,7 +68,7 @@ def test_extract_plugin_id_from_hook_not_a_pill_hook(morpheus_instance):
     assert plugin_id is None
 
 
-def test_extract_plugin_id_from_hook_with_invalid_plugin_id(morpheus_instance):
+def test_extract_plugin_id_from_hook_with_invalid_plugin_id(morpheus_instance:Morpheus):
     """Test extracting plugin_id when hook.plugin_id is None or invalid."""
     def dummy_func():
         pass
@@ -86,7 +87,7 @@ def test_extract_plugin_id_from_hook_with_invalid_plugin_id(morpheus_instance):
     assert plugin_id is None
 
 
-def test_extract_plugin_id_from_hook_with_non_string_plugin_id(morpheus_instance):
+def test_extract_plugin_id_from_hook_with_non_string_plugin_id(morpheus_instance:Morpheus):
     """Test extracting plugin_id when hook.plugin_id is not a string."""
     def dummy_func():
         pass
@@ -105,15 +106,15 @@ def test_extract_plugin_id_from_hook_with_non_string_plugin_id(morpheus_instance
     assert plugin_id is None
 
 
-def test_get_plugin_id_with_no_hook_in_stack(morpheus_instance):
+def test_get_plugin_id_with_no_hook_in_stack(morpheus_instance:Morpheus):
     """Test get_plugin_id raises RuntimeError when no @hook found in stack."""
     # Mock inspect.stack to return empty/minimal stack
     with patch("inspect.stack", return_value=[]):
         with pytest.raises(RuntimeError, match="No @hook decorated function found in the call stack"):
-            morpheus_instance.self_plugin()
+            morpheus_instance.self_plugin_id()
 
 
-def test_get_plugin_id_with_unknown_plugin_in_stack(morpheus_instance):
+def test_get_plugin_id_with_unknown_plugin_in_stack(morpheus_instance:Morpheus):
     """Test get_plugin_id raises RuntimeError when plugin_id from stack not in loaded plugins."""
     # Mock stack with a frame pointing to a hook with unknown plugin_id
     mock_frame_info = Mock()
@@ -130,10 +131,10 @@ def test_get_plugin_id_with_unknown_plugin_in_stack(morpheus_instance):
                 return_value="unknown_plugin"
             ):
                 with pytest.raises(RuntimeError, match="Plugin 'unknown_plugin' not found"):
-                    morpheus_instance.self_plugin()
+                    morpheus_instance.get_plugin("unknown_plugin")
 
 
-def test_get_plugin_id_success_finds_hook_in_stack(morpheus_instance):
+def test_get_plugin_id_success_finds_hook_in_stack(morpheus_instance:Morpheus):
     """Test get_plugin_id successfully finds @hook in stack and returns plugin."""
     # Add a mock plugin
     mock_plugin = Mock(spec=Plugin)
@@ -153,12 +154,12 @@ def test_get_plugin_id_success_finds_hook_in_stack(morpheus_instance):
                 "_extract_plugin_id_from_hook",
                 return_value="test_plugin"
             ):
-                result = morpheus_instance.self_plugin()
+                result = morpheus_instance.get_plugin("test_plugin")
     
     assert result is mock_plugin
 
 
-def test_get_plugin_id_walks_stack_until_hook_found(morpheus_instance):
+def test_get_plugin_id_walks_stack_until_hook_found(morpheus_instance:Morpheus):
     """Test get_plugin_id walks stack through helper functions until @hook is found.
     
     This tests Solution 1's key feature: supporting arbitrary call chains
@@ -199,7 +200,7 @@ def test_get_plugin_id_walks_stack_until_hook_found(morpheus_instance):
     with patch("inspect.stack", return_value=frames):
         with patch("inspect.getmodule", return_value=mock_module):
             with patch.object(morpheus_instance, "_extract_plugin_id_from_hook", side_effect=extract_side_effect):
-                result = morpheus_instance.self_plugin()
+                result = morpheus_instance.get_plugin(morpheus_instance.self_plugin_id())
     
     assert result is mock_plugin
     # Should have checked helper_func, another_helper, and my_hook (found at third)
@@ -207,11 +208,3 @@ def test_get_plugin_id_walks_stack_until_hook_found(morpheus_instance):
     assert "another_helper" in extract_calls
     assert "my_hook" in extract_calls
 
-
-def test_get_plugin_id_general_exception_handling(morpheus_instance):
-    """Test get_plugin_id wraps non-RuntimeError exceptions."""
-    # RuntimeError are re-raised as-is (see: except RuntimeError: raise)
-    # So we need to test with a different exception type that gets wrapped
-    with patch("inspect.stack", side_effect=ValueError("Unexpected value error")):
-        with pytest.raises(RuntimeError, match="Failed to determine plugin"):
-            morpheus_instance.self_plugin()
