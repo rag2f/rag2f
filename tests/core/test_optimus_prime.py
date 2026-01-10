@@ -80,6 +80,23 @@ class TestOptimusPrime:
         with pytest.raises(ValueError, match="Override not allowed"):
             optimus.register("test", embedder2)
 
+        assert optimus.get("test") is embedder1
+
+    def test_unregister_removes_and_returns_expected_flags(self):
+        """Unregistering should behave like a Boolean toggle."""
+        optimus = OptimusPrime()
+
+        assert optimus.unregister("missing") is False
+
+        embedder = MockEmbedder()
+        optimus.register("test", embedder)
+
+        assert optimus.unregister("test") is True
+        assert optimus.has("test") is False
+        assert optimus.get("test") is None
+
+        assert optimus.unregister("test") is False
+
     def test_register_same_instance_is_idempotent(self):
         """Registering the same instance twice should be a no-op."""
         optimus = OptimusPrime()

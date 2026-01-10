@@ -105,6 +105,18 @@ class OptimusPrime:
         return list(self._embedder_registry.keys())
 
 
+    def unregister(self, key: str) -> bool:
+        """Unregister an embedder by key.
+
+        Returns True if the embedder was removed, False if it was not found.
+        """
+        if key in self._embedder_registry:
+            del self._embedder_registry[key]
+            logger.debug("Embedder '%s' unregistered.", key)
+            return True
+        return False
+
+
     def get_default(self) -> Embedder:
         """Return the default embedder based on configuration hints.
 
