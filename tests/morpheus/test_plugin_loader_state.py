@@ -176,6 +176,115 @@ def should_not_load(phone, rag2f=None):
     assert plugin.hooks[0].function.__name__ == "ok"
 
 
+def test_unload_removes_plugin_modules_from_sys_modules(tmp_path: Path, rag2f):
+    plugin_dir = _make_plugin_dir(tmp_path, "plug_unload")
+
+    _write_text(
+        plugin_dir / "src" / "hook_mod.py",
+        """
+from rag2f.core.morpheus.decorators.hook import hook
+
+
+@hook('morpheus_test_hook_message')
+def my_hook(phone, rag2f=None):
+    return phone
+""".lstrip(),
+    )
+
+    plugin = Plugin(rag2f, str(plugin_dir))
+    plugin._load_decorated_functions()
+
+    module_name = f"plugins.{plugin.id}.src.hook_mod"
+    assert module_name in sys.modules
+    assert len(plugin.hooks) == 1
+
+    plugin.deactivate()
+
+    assert module_name not in sys.modules
+    assert plugin.hooks == []
+    assert plugin.overrides == {}
+
+
+def test_unload_does_not_remove_other_plugins_modules(tmp_path: Path, rag2f):
+    plugin_a_dir = _make_plugin_dir(tmp_path, "plug_a")
+    plugin_b_dir = _make_plugin_dir(tmp_path, "plug_b")
+
+    _write_text(
+        plugin_a_dir / "src" / "a.py",
+        """
+from rag2f.core.morpheus.decorators.hook import hook
+
+
+@hook('morpheus_test_hook_message')
+def hook_a(phone, rag2f=None):
+    return phone
+""".lstrip(),
+    )
+    _write_text(
+        plugin_b_dir / "src" / "b.py",
+        """
+from rag2f.core.morpheus.decorators.hook import hook
+
+
+@hook('morpheus_test_hook_message')
+def hook_b(phone, rag2f=None):
+    return phone
+""".lstrip(),
+    )
+
+    plugin_a = Plugin(rag2f, str(plugin_a_dir))
+    plugin_b = Plugin(rag2f, str(plugin_b_dir))
+
+    plugin_a._load_decorated_functions()
+    plugin_b._load_decorated_functions()
+
+    mod_a = f"plugins.{plugin_a.id}.src.a"
+    mod_b = f"plugins.{plugin_b.id}.src.b"
+    assert mod_a in sys.modules
+    assert mod_b in sys.modules
+
+    plugin_a.deactivate()
+
+    assert mod_a not in sys.modules
+    assert mod_b in sys.modules
+
+
+def test_unload_removes_relative_import_submodules(tmp_path: Path, rag2f):
+    plugin_dir = _make_plugin_dir(tmp_path, "plug_rel_unload")
+
+    _write_text(
+        plugin_dir / "src" / "b.py",
+        """
+VALUE = 123
+""".lstrip(),
+    )
+    _write_text(
+        plugin_dir / "src" / "a.py",
+        """
+from .b import VALUE
+from rag2f.core.morpheus.decorators.hook import hook
+
+
+@hook('morpheus_test_hook_message')
+def my_hook(phone, rag2f=None):
+    return phone
+""".lstrip(),
+    )
+
+    plugin = Plugin(rag2f, str(plugin_dir))
+    plugin._load_decorated_functions()
+
+    mod_a = f"plugins.{plugin.id}.src.a"
+    mod_b = f"plugins.{plugin.id}.src.b"
+    assert mod_a in sys.modules
+    assert mod_b in sys.modules
+
+    plugin.deactivate()
+
+    assert mod_a not in sys.modules
+    assert mod_b not in sys.modules
+
+
 # =====================================
 # F) ERROR HANDLING
 # =====================================

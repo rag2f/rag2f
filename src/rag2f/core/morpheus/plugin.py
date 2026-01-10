@@ -78,6 +78,9 @@ class Plugin:
         # list of @plugin decorated functions overriding default plugin behaviour
         self._plugin_overrides = {}
 
+        # plugin starts deactivated
+        self._active = False
+
     def activate(self):
         # install plugin requirements on activation
         try:
@@ -85,12 +88,29 @@ class Plugin:
         except Exception as e:
             raise e
 
-        # Load of hook
+        # Load of hook and ovverided functions
         self._load_decorated_functions()
 
         # run custom activation from @plugin
         if "activated" in self.overrides:
             self.overrides["activated"].function(self,self._rag2f_instance)
+        
+        self._active = True
+
+    def deactivate(self):
+
+        # run custom deactivation from @plugin
+        if "deactivated" in self.overrides:
+            self.overrides["deactivated"].function(self)
+
+        # UnLoad of hook and ovverided functions
+        self._unload_decorated_functions()
+        self._active = False
+
+    def _module_name_for_file(self, py_file: str) -> str:
+        rel = os.path.relpath(py_file, start=self._path)
+        rel_mod = rel.replace(os.sep, ".").replace(".py", "")
+        return f"plugins.{self._id}.{rel_mod}"
 
     def _load_manifest(self) -> PluginManifest:
         plugin_path = Path(self._path)
@@ -546,9 +566,7 @@ class Plugin:
             # duplicate imports, decorator side effects, and overwritten hook metadata.
             # By using a consistent module name, we ensure each plugin file is loaded only once,
             # and hook metadata (like plugin_id) is not accidentally overwritten by duplicate imports.
-            rel = os.path.relpath(py_file, start=self._path)  
-            rel_mod = rel.replace(os.sep, ".").replace(".py", "")
-            module_name = f"plugins.{self._id}.{rel_mod}"
+            module_name = self._module_name_for_file(py_file)
 
             logger.debug(f"Import module {module_name} from {py_file}")
 
@@ -601,6 +619,28 @@ class Plugin:
         # clean and enrich instances
         self._hooks = list(map(self._clean_and_enrich_hook, hooks))
         self._plugin_overrides = {override.name: override for override in list(map(self._clean_plugin_override, plugin_overrides))}
+
+    def _unload_decorated_functions(self) -> None:
+        """Unload previously loaded plugin modules from sys.modules.
+
+        This mirrors the stable module naming used by _load_decorated_functions
+        (plugins.<plugin_id>.<relative_path>), and removes any submodules created
+        via relative imports under that namespace.
+        """
+
+        plugin_pkg_name = f"plugins.{self._id}"
+        to_remove = [
+            name
+            for name in list(sys.modules.keys())
+            if name == plugin_pkg_name or name.startswith(plugin_pkg_name + ".")
+        ]
+
+        for name in to_remove:
+            logger.debug(f"Remove module {name}")
+            sys.modules.pop(name, None)
+
+        self._hooks = []
+        self._plugin_overrides = {}
 
         
 #
@@ -681,3 +721,7 @@ class Plugin:
     @property
     def overrides(self):
         return self._plugin_overrides
+
+    @property
+    def active(self):
+        return self._active
