@@ -53,30 +53,30 @@ class RAG2F:
         # Then discover and activate plugins
         await instance.morpheus.find_plugins()
         # Bootstrap embedders from plugins
-        await instance._bootstrap_embedders()
+        #await instance._bootstrap_embedders()
         # Bootstrap repositories from plugins
         await instance._bootstrap_repositories()
         return instance
 
-    async def _bootstrap_embedders(self) -> None:
-        """Bootstrap embedders loaded from plugins.
+    # async def _bootstrap_embedders(self) -> None:
+    #     """Bootstrap embedders loaded from plugins.
 
-        Populates embedder_registry with embedders provided by plugins
-        via the hook mechanism.
-        """
-        logger.debug("Bootstrapping embedders from loaded plugins...")
-        embedders = self.morpheus.execute_hook(
-            "rag2f_bootstrap_embedders",
-            self.optimus_prime.registry,
-            rag2f=self,
-        )
-        # Register embedders using OptimusPrime
-        self.optimus_prime.register_batch(embedders)
-        registry_size = len(self.optimus_prime.list_keys()) if self.optimus_prime else 0
-        logger.debug(
-            "Bootstrapping embedders completed. Registry size=%d.",
-            registry_size
-        )
+    #     Populates embedder_registry with embedders provided by plugins
+    #     via the hook mechanism.
+    #     """
+    #     logger.debug("Bootstrapping embedders from loaded plugins...")
+    #     embedders = self.morpheus.execute_hook(
+    #         "rag2f_bootstrap_embedders",
+    #         self.optimus_prime.registry,
+    #         rag2f=self,
+    #     )
+    #     # Register embedders using OptimusPrime
+    #     self.optimus_prime.register_batch(embedders)
+    #     registry_size = len(self.optimus_prime.list_keys()) if self.optimus_prime else 0
+    #     logger.debug(
+    #         "Bootstrapping embedders completed. Registry size=%d.",
+    #         registry_size
+    #     )
 
     async def _bootstrap_repositories(self) -> None:
         """Bootstrap repositories loaded from plugins.
