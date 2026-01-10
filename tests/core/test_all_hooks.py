@@ -1,12 +1,31 @@
+def test_get_id_input_text_hook_transforms_input(rag2f):
+	"""get_id_input_text must derive a deterministic id from the provided text."""
+	generated_id = rag2f.morpheus.execute_hook("get_id_input_text", None, "alpha-beta", rag2f=rag2f)
+
+	assert generated_id == "alpha-beta-mock-id"
 
 
-# def test_hook_rag2f_bootstrap_embedders(rag2f):
-#     # After bootstrap, mock_embedder must be present in the registry
-#     assert rag2f.optimus_prime.has("mock_plugin"), "mock_plugin not found in registry"
-#     mock = rag2f.optimus_prime.get("mock_plugin")
-#     # Check that it implements the Embedder protocol
-#     from rag2f.core.protocols.embedder import Embedder
-#     assert isinstance(mock, Embedder), "mock_plugin does not implement the Embedder protocol"
-#     # Check that it returns the expected embedding
-#     emb = mock.getEmbedding("test input")
-#     assert emb == [0.1, 0.2, 0.3], f"Unexpected embedding: {emb}"
+def test_check_duplicated_input_text_hook_flags_duplicates(rag2f):
+	"""check_duplicated_input_text should only flag inputs containing 'duplicate'."""
+	duplicate = rag2f.morpheus.execute_hook(
+		"check_duplicated_input_text", False, "alpha-beta-mock-id", "Please duplicate this", rag2f=rag2f
+	)
+	untouched = rag2f.morpheus.execute_hook(
+		"check_duplicated_input_text", False, "alpha-beta-mock-id", "unique payload", rag2f=rag2f
+	)
+
+	assert duplicate is True
+	assert untouched is False
+
+
+def test_handle_text_foreground_hook_completes_flow(rag2f):
+	"""handle_text_foreground should return True only when the text contains 'handled'."""
+	handled = rag2f.morpheus.execute_hook(
+		"handle_text_foreground", False, "alpha-beta-mock-id", "This text is handled automatically", rag2f=rag2f
+	)
+	pending = rag2f.morpheus.execute_hook(
+		"handle_text_foreground", False, "alpha-beta-mock-id", "This text still needs work", rag2f=rag2f
+	)
+
+	assert handled is True
+	assert pending is False

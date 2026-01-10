@@ -62,15 +62,19 @@ def test_activate_plugin(plugin):
     # Check that plugin._id is set and matches plugin.id
     assert hasattr(plugin, "_id")
     assert plugin._id == plugin.id
+    hook_names = {hook.name for hook in plugin.hooks}
+    expected_hook_names = {
+        "morpheus_test_hook_message",
+        "get_id_input_text",
+        "check_duplicated_input_text",
+        "handle_text_foreground",
+    }
+    assert hook_names == expected_hook_names
     for hook in plugin.hooks:
         assert isinstance(hook, PillHook)
         # Check that hook.plugin_id is set and matches plugin._id
         assert hasattr(hook, "plugin_id")
         assert hook.plugin_id == plugin._id
-        assert hook.name in [
-            "morpheus_test_hook_message",
-            "rag2f_bootstrap_embedders"
-        ]
         assert isfunction(hook.function)
 
         if hook.name == "morpheus_test_hook_message":
