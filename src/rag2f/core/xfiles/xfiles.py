@@ -146,6 +146,12 @@ class XFiles:
         
         # Override policy: do not allow overriding existing registrations
         if id in self._registry:
+            if self._registry[id].repository is repository:
+                logger.warning(
+                    "Repository '%s' already registered with the same instance; attention and investigate because this could be a poor use of resources. Skipping.",
+                    id,
+                )
+                return
             raise ValueError(
                 f"Override not allowed for already registered repository: {id!r}"
             )
@@ -157,79 +163,6 @@ class XFiles:
         )
         self._registry[id] = entry
         logger.debug("Repository '%s' registered successfully.", id)
-
-    def register_batch(
-        self,
-        repositories: Dict[str, Union[BaseRepository, tuple[BaseRepository, Dict[str, Any]]]],
-    ) -> None:
-        """Register multiple repositories at once.
-        
-        Args:
-            repositories: Dictionary mapping IDs to either:
-                - Repository instances (no metadata).
-                - Tuples of (repository, metadata).
-                
-        Raises:
-            ValueError: If any ID is invalid or already exists.
-            TypeError: If any repository doesn't implement BaseRepository.
-            
-        Example:
-            >>> xfiles.register_batch({
-            ...     "users": users_repo,
-            ...     "orders": (orders_repo, {"type": "sql", "domain": "orders"}),
-            ...     "cache": (cache_repo, {"type": "redis"}),
-            ... })
-        """
-        if repositories is None:
-            repositories = {}
-        
-        if not hasattr(repositories, "items"):
-            raise TypeError(
-                "repositories parameter must be a mapping (e.g., dict)."
-            )
-        
-        # Copy-on-write: work on a copy, then swap the reference
-        new_registry: Dict[str, RepositoryEntry] = dict(self._registry)
-        
-        # Single pass: validate + insert
-        for id, value in repositories.items():
-            # Validate ID
-            if not isinstance(id, str) or not id.strip():
-                raise ValueError(f"Invalid repository ID: {id!r}")
-            
-            # Parse value (repo or (repo, meta) tuple)
-            if isinstance(value, tuple) and len(value) == 2:
-                repository, meta = value
-            else:
-                repository = value
-                meta = {}
-            
-            # Protocol compliance
-            if not isinstance(repository, BaseRepository):
-                raise TypeError(
-                    f"Repository '{id}' does not implement the BaseRepository protocol"
-                )
-            
-            # Override policy
-            if id in new_registry:
-                raise ValueError(
-                    f"Override not allowed for already registered repository: {id!r}"
-                )
-            
-            entry = RepositoryEntry(
-                id=id,
-                repository=repository,
-                meta=meta if isinstance(meta, dict) else {},
-            )
-            new_registry[id] = entry
-        
-        # Atomic swap of the reference
-        self._registry = new_registry
-        logger.debug(
-            "Batch registration completed. Registry size=%d (+%d new repositories).",
-            len(self._registry),
-            len(repositories),
-        )
 
     def unregister(self, id: str) -> bool:
         """Unregister a repository by ID.

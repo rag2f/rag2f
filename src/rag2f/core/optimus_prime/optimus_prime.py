@@ -55,64 +55,21 @@ class OptimusPrime:
                 f"Embedder '{key}' does not implement the Embedder protocol"
             )
         
-        # Override policy: do not allow overriding existing embedders
+        # Override policy: do not allow overriding existing embedders.
+        # Idempotency: allow registering the *same instance* twice.
         if key in self._embedder_registry:
+            if self._embedder_registry[key] is embedder:
+                logger.warning(
+                    "Embedder '%s' already registered with the same instance; attention and investigate because this could be a poor use of resources. Skipping.",
+                    key,
+                )
+                return
             raise ValueError(
                 f"Override not allowed for already registered embedder: {key!r}"
             )
         
         self._embedder_registry[key] = embedder
         logger.debug("Embedder '%s' registered successfully.", key)
-
-    def register_batch(self, embedders: Dict[str, Embedder]) -> None:
-        """Register multiple embedders at once.
-        
-        Args:
-            embedders: Dictionary mapping keys to Embedder instances
-            
-        Raises:
-            ValueError: If any key is invalid or already exists
-            TypeError: If any embedder doesn't implement Embedder protocol
-        """
-        if embedders is None:
-            embedders = {}
-        
-        if not hasattr(embedders, "items"):
-            raise TypeError(
-                "embedders parameter must be a mapping (e.g., dict)."
-            )
-        
-        # Copy-on-write: work on a copy, then swap the reference
-        new_registry: Dict[str, Embedder] = dict(self._embedder_registry)
-        
-        # Single pass: validate (key/value) + override policy + insert
-        for key, embedder in embedders.items():
-            # Validate key
-            if not isinstance(key, str) or not key.strip():
-                raise ValueError(f"Invalid embedder key: {key!r}")
-            
-            # Protocol compliance
-            if not isinstance(embedder, Embedder):
-                raise TypeError(
-                    f"Embedder '{key}' does not implement the Embedder protocol"
-                )
-            
-            # Override policy
-            if key in new_registry:
-                raise ValueError(
-                    f"Override not allowed for already registered embedder: {key!r}"
-                )
-            
-            # Insert into the new copy
-            new_registry[key] = embedder
-        
-        # Atomic swap of the reference (readers never see partial states)
-        self._embedder_registry = new_registry
-        logger.debug(
-            "Batch registration completed. Registry size=%d (+%d new embedders).",
-            len(self._embedder_registry),
-            len(embedders),
-        )
 
     def get(self, key: str) -> Optional[Embedder]:
         """Get an embedder by its key.

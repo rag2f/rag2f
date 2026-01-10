@@ -80,53 +80,16 @@ class TestOptimusPrime:
         with pytest.raises(ValueError, match="Override not allowed"):
             optimus.register("test", embedder2)
 
-    def test_register_batch(self):
-        """Test batch registration of embedders."""
+    def test_register_same_instance_is_idempotent(self):
+        """Registering the same instance twice should be a no-op."""
         optimus = OptimusPrime()
-        embedders = {
-            "embedder1": MockEmbedder(),
-            "embedder2": MockEmbedder(),
-            "embedder3": MockEmbedder(),
-        }
-        
-        optimus.register_batch(embedders)
-        
-        assert len(optimus.list_keys()) == 3
-        assert optimus.has("embedder1")
-        assert optimus.has("embedder2")
-        assert optimus.has("embedder3")
+        embedder = MockEmbedder()
 
-    def test_register_batch_with_none(self):
-        """Test batch registration with None input."""
-        optimus = EmbedderManager()
-        
-        optimus.register_batch(None)
-        
-        assert len(optimus.list_keys()) == 0
+        optimus.register("test", embedder)
+        optimus.register("test", embedder)
 
-    def test_register_batch_invalid_type(self):
-        """Test batch registration with non-dict raises TypeError."""
-        optimus = OptimusPrime()
-        
-        with pytest.raises(TypeError, match="must be a mapping"):
-            optimus.register_batch("not_a_dict")
-
-    def test_register_batch_duplicate_key(self):
-        """Test batch registration with duplicate key raises ValueError."""
-        optimus = OptimusPrime()
-        optimus.register("existing", MockEmbedder())
-        
-        embedders = {
-            "existing": MockEmbedder(),
-            "new": MockEmbedder(),
-        }
-        
-        with pytest.raises(ValueError, match="Override not allowed"):
-            optimus.register_batch(embedders)
-        
-        # Registry should remain unchanged
         assert len(optimus.list_keys()) == 1
-        assert not optimus.has("new")
+        assert optimus.get("test") is embedder
 
     def test_get_existing_embedder(self):
         """Test getting an existing embedder."""
@@ -199,26 +162,6 @@ class TestOptimusPrime:
         # Verify it's a copy (modifications don't affect internal registry)
         registry["e3"] = MockEmbedder()
         assert not optimus.has("e3")
-
-    def test_atomic_batch_registration(self):
-        """Test that batch registration is atomic (all or nothing)."""
-        optimus = OptimusPrime()
-        optimus.register("existing", MockEmbedder())
-        
-        # Batch with one conflicting key
-        embedders = {
-            "new1": MockEmbedder(),
-            "existing": MockEmbedder(),  # This will conflict
-            "new2": MockEmbedder(),
-        }
-        
-        with pytest.raises(ValueError):
-            optimus.register_batch(embedders)
-        
-        # Verify no partial registration occurred
-        assert len(optimus.list_keys()) == 1
-        assert not optimus.has("new1")
-        assert not optimus.has("new2")
 
     def test_get_default_single_embedder_without_hint(self):
         """Default lookup returns sole embedder when no config is provided."""
