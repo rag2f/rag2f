@@ -2,10 +2,10 @@ import logging
 
 import pytest
 
-from rag2f.core.xfiles import XFiles, minimal_crud_capabilities
+from rag2f.core.xfiles import BaseRepository, XFiles, minimal_crud_capabilities
 
 
-class DummyRepository:
+class DummyRepository(BaseRepository):
     def __init__(self, name: str = "dummy") -> None:
         self._name = name
 

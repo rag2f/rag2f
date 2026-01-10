@@ -1,4 +1,5 @@
 from rag2f.core.protocols.embedder import Embedder
+from rag2f.core.xfiles import minimal_crud_capabilities
 
 
 def test_plugin_override_registers_embedder(rag2f):
@@ -7,3 +8,13 @@ def test_plugin_override_registers_embedder(rag2f):
     assert isinstance(mock_embedder, Embedder), "mock_plugin override should expose a valid Embedder"
     emb = mock_embedder.getEmbedding("test input")
     assert emb == [0.1, 0.2, 0.3], f"Unexpected embedding: {emb}"
+
+
+def test_plugin_override_registers_repository(rag2f):
+    repo_id = "mock_plugin_repository"
+    assert rag2f.xfiles.has(repo_id), "mock_plugin repository not registered"
+    repo = rag2f.xfiles.get(repo_id)
+    assert repo is not None
+    assert repo.name == repo_id
+    assert repo.capabilities() == minimal_crud_capabilities()
+    assert rag2f.xfiles.get_meta(repo_id) == {"origin": "mock_plugin"}
