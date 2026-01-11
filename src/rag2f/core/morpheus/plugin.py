@@ -101,7 +101,7 @@ class Plugin:
 
         # run custom deactivation from @plugin
         if "deactivated" in self.overrides:
-            self.overrides["deactivated"].function(self)
+            self.overrides["deactivated"].function(self, self._rag2f_instance)
 
         # UnLoad of hook and ovverided functions
         self._unload_decorated_functions()

@@ -51,7 +51,8 @@ def test_create_plugin(plugin):
 
     # hooks
     assert len(plugin.hooks) == get_mock_plugin_info()["hooks"]
-    assert len(plugin.overrides) == 1
+    assert len(plugin.overrides) == 2
+    assert set(plugin.overrides.keys()) == {"activated", "deactivated"}
 
     assert not hasattr(plugin, "custom_deactivation_executed")
 
@@ -84,9 +85,9 @@ def test_activate_plugin(plugin):
 
 
     # overrides by @plugin decorator
-    assert len(plugin.overrides) == 1
+    assert len(plugin.overrides) == 2
     assert plugin.custom_id == plugin.id
-    assert set(plugin.overrides.keys()) == {"activated"}
+    assert set(plugin.overrides.keys()) == {"activated", "deactivated"}
     assert not hasattr(plugin, "custom_deactivation_executed")
 
 

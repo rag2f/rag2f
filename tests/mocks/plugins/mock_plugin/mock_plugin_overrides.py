@@ -60,4 +60,14 @@ def activated(plugin, rag2f_instance: RAG2F):
         repo_manager.register(repo_id, repo, meta={"origin": "mock_plugin"})
 
 
+@plugin
+def deactivated(plugin, rag2f_instance: RAG2F):
+    embedder_manager = rag2f_instance.optimus_prime
+    embedder_manager.unregister(plugin.id)
+
+    repo_manager = rag2f_instance.xfiles
+    repo_id = f"{plugin.id}_repository"
+    repo_manager.unregister(repo_id)
+
+
 

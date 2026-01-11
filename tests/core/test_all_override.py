@@ -18,3 +18,19 @@ def test_plugin_override_registers_repository(rag2f):
     assert repo.name == repo_id
     assert repo.capabilities() == minimal_crud_capabilities()
     assert rag2f.xfiles.get_meta(repo_id) == {"origin": "mock_plugin"}
+
+
+def test_plugin_override_handles_deactivation(rag2f):
+    repo_id = "mock_plugin_repository"
+    plugin = rag2f.morpheus.plugins["mock_plugin"]
+
+    plugin.deactivate()
+
+    assert not rag2f.optimus_prime.has("mock_plugin"), "embedder should be removed on deactivate"
+    assert not rag2f.xfiles.has(repo_id), "repository should be removed on deactivate"
+
+    plugin.activate()
+
+    assert rag2f.optimus_prime.has("mock_plugin"), "embedder should be re-registered"
+    assert rag2f.xfiles.has(repo_id), "repository should be re-registered"
+    assert rag2f.xfiles.get_meta(repo_id) == {"origin": "mock_plugin"}
