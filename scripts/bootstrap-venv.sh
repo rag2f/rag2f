@@ -17,14 +17,17 @@ else
   exit 1
 fi
 
-if [[ ! -d "$VENV_DIR" ]]; then
+venv_python="$VENV_DIR/bin/python"
+
+# NOTE: When running inside a DevContainer, .venv may be a mounted Docker volume.
+# In that case the directory can exist but be empty on first run.
+if [[ ! -x "$venv_python" ]]; then
   echo "Creating venv in $VENV_DIR using $python_bin..."
   "$python_bin" -m venv "$VENV_DIR"
 fi
 
-venv_python="$VENV_DIR/bin/python"
 if [[ ! -x "$venv_python" ]]; then
-  echo "ERROR: venv python not found at $venv_python" >&2
+  echo "ERROR: venv python not found at $venv_python (after creating venv)" >&2
   exit 1
 fi
 

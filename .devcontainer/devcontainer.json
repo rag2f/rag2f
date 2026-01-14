@@ -1,6 +1,9 @@
 {
   "name": "rag2f Devcontainer",
   "image": "python:3.12",
+  "mounts": [
+    "source=rag2f-venv,target=/workspaces/rag2f/.venv,type=volume"
+  ],
   "features": {
     "ghcr.io/devcontainers/features/common-utils:2": {
       "version": "latest"
@@ -36,7 +39,7 @@
       }
     }
   },
-  "postCreateCommand": "bash scripts/bootstrap-venv.sh",
+  "postCreateCommand": "(sudo chown -R vscode:vscode /workspaces/rag2f/.venv 2>/dev/null || true) && bash scripts/bootstrap-venv.sh",
   "postStartCommand": ". .venv/bin/activate && pip install uv && uv pip install -e . && pre-commit install",
   "remoteUser": "vscode",
   "containerEnv": {
