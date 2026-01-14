@@ -1,0 +1,23 @@
+{
+  "rag2f": {
+    "embedder_default": "test_embedder"
+  },
+  "plugins": {
+    "azure_openai_embedder": {
+      "azure_endpoint": "https://your-resource.openai.azure.com",
+      "api_key": "your-api-key-here",
+      "api_version": "2024-02-15-preview",
+      "deployment": "text-embedding-ada-002",
+      "size": 1536,
+      "timeout": 30.0,
+      "max_retries": 2
+    },
+    "another_plugin": {
+      "setting1": "value1",
+      "setting2": 42,
+      "nested": {
+        "key": "value"
+      }
+    }
+  }
+}

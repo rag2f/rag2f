@@ -1,0 +1,245 @@
+name: Release from Tags
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check tag commit is on main
+        run: |
+          echo "::group::Checking if tag commit is on main"
+          git fetch origin main:refs/remotes/origin/main --depth=200
+          TAG_COMMIT=$(git rev-parse "${GITHUB_SHA}")
+          if git merge-base --is-ancestor "$TAG_COMMIT" origin/main; then
+            echo "✅ Tag commit $TAG_COMMIT is on main"
+          else
+            echo "❌ ERROR: Il tag non punta a un commit presente su main. Release bloccata."
+            exit 1
+          fi
+          echo "::endgroup::"
+
+      - name: Determine release type
+        id: release_type
+        run: |
+          TAG_NAME="${GITHUB_REF#refs/tags/}"
+          echo "tag=$TAG_NAME" >> $GITHUB_OUTPUT
+          if [[ "$TAG_NAME" =~ (rc|a|b)[0-9]+$ ]]; then
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+            echo "Release type: Pre-release (RC/alpha/beta)"
+          else
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+            echo "Release type: Stable release"
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install build "setuptools-scm[toml]>=8.0" wheel
+
+      - name: Validate src/ structure
+        run: |
+          echo "::group::Validating src/ directory structure"
+          if [ ! -d "src" ]; then
+            echo "❌ ERROR: /src directory not found!"
+            exit 1
+          fi
+          echo "✅ /src directory exists"
+          package_found=false
+          for dir in src/*/; do
+            if [ -d "$dir" ] && [ -f "${dir}__init__.py" ]; then
+              package_found=true
+              echo "✅ Found package: $(basename "$dir")"
+            fi
+          done
+          if [ -f "src/__init__.py" ]; then
+            package_found=true
+            echo "✅ src/ is also a package"
+          fi
+          if [ "$package_found" = false ]; then
+            echo "❌ ERROR: No importable package found in /src"
+            exit 1
+          fi
+          echo "::endgroup::"
+
+      - name: Validate __init__.py presence
+        run: |
+          echo "::group::Validating __init__.py in all packages"
+          missing_init=()
+          while IFS= read -r -d '' dir; do
+            if [ ! -f "$dir/__init__.py" ]; then
+              missing_init+=("$dir")
+            else
+              echo "✅ $dir has __init__.py"
+            fi
+          done < <(find src -type d -exec sh -c '[ -n "$(find "$1" -maxdepth 1 -name "*.py" -print -quit)" ]' _ {} \; -print0)
+          if [ ${#missing_init[@]} -gt 0 ]; then
+            echo "❌ ERROR: Missing __init__.py in:"
+            printf '  - %s\n' "${missing_init[@]}"
+            exit 1
+          fi
+          echo "::endgroup::"
+
+      - name: Validate pyproject.toml configuration
+        run: |
+          echo "::group::Validating pyproject.toml"
+          if ! grep -q 'dynamic.*=.*\[.*"version".*\]' pyproject.toml; then
+            echo "❌ ERROR: dynamic version not configured"
+            exit 1
+          fi
+          echo "✅ dynamic version configured"
+          if ! grep -q 'setuptools-scm' pyproject.toml; then
+            echo "❌ ERROR: setuptools-scm not in build-system"
+            exit 1
+          fi
+          echo "✅ setuptools-scm configured"
+          if ! grep -q 'local_scheme.*=.*"no-local-version"' pyproject.toml; then
+            echo "❌ ERROR: local_scheme must be no-local-version"
+            exit 1
+          fi
+          echo "✅ local_scheme validated"
+          if ! grep -q 'where.*=.*\[.*"src".*\]' pyproject.toml; then
+            echo "❌ ERROR: src layout not configured"
+            exit 1
+          fi
+          echo "✅ src layout validated"
+          echo "::endgroup::"
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          TAG="${{ steps.release_type.outputs.tag }}"
+          VERSION="${TAG#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Extracted version: $VERSION"
+
+      - name: Build package
+        run: |
+          echo "Building release version: ${{ steps.version.outputs.version }}"
+          python -m build --wheel --no-isolation
+          python -m build --sdist --no-isolation
+
+      - name: Verify build contents
+        run: |
+          echo "::group::Build artifacts"
+          ls -lh dist/
+          echo "Wheel contents:"
+          pip install wheel
+          for whl in dist/*.whl; do
+            echo "Contents of $whl:"
+            unzip -l "$whl" | head -50
+          done
+          echo "::endgroup::"
+
+      - name: Generate SHA256 checksums
+        run: |
+          cd dist
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          cd ..
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: ${{ steps.release_type.outputs.tag }}
+          tag_name: ${{ steps.release_type.outputs.tag }}
+          prerelease: ${{ steps.release_type.outputs.is_prerelease }}
+          files: |
+            dist/*
+          body: |
+            ## Release ${{ steps.version.outputs.version }}
+            
+            ${{ steps.release_type.outputs.is_prerelease == 'true' && '⚠️ This is a pre-release version' || '✅ Stable release' }}
+            
+            ### Installation
+            
+            ```bash
+            pip install rag2f==${{ steps.version.outputs.version }}
+            ```
+            
+            ### Version Information
+            
+            To check the installed version and commit:
+            
+            ```python
+            from rag2f import __version__, __commit__, __distance__
+            print(f"Version: {__version__}")
+            print(f"Commit: {__commit__}")
+            print(f"Distance from tag: {__distance__}")
+            ```
+            
+            ### Artifacts
+            
+            - Source distribution (`.tar.gz`)
+            - Wheel distribution (`.whl`)
+            - SHA256 checksums (`SHA256SUMS.txt`)
+            
+            ### Verify checksums
+            
+            ```bash
+            sha256sum -c SHA256SUMS.txt
+            ```
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Smoke test - Install and verify
+        run: |
+          echo "::group::Smoke test - installing from PyPI"
+          python -m venv test-env
+          source test-env/bin/activate
+          python -m pip install --upgrade pip
+          VERSION="${{ steps.version.outputs.version }}"
+          max_attempts=20
+          sleep_seconds=30
+          attempt=1
+          until pip install --no-cache-dir rag2f=="$VERSION"; do
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "❌ ERROR: rag2f==$VERSION not available on PyPI simple index after $((max_attempts * sleep_seconds))s"
+              exit 1
+            fi
+            echo "⚠️  rag2f==$VERSION not available yet (attempt $attempt/$max_attempts). Sleeping ${sleep_seconds}s..."
+            attempt=$((attempt + 1))
+            sleep "$sleep_seconds"
+          done
+          python -c "
+          import rag2f
+          print('✅ Successfully imported rag2f')
+          try:
+              print(f'__version__: {getattr(rag2f, '__version__', None)}')
+              print(f'__commit__: {getattr(rag2f, '__commit__', None)}')
+              print(f'__distance__: {getattr(rag2f, '__distance__', None)}')
+              expected = '$VERSION'
+              if rag2f.__version__ != expected:
+                  print(f'❌ Version mismatch! Expected {expected}, got {rag2f.__version__}')
+                  exit(1)
+              print('✅ Version matches tag')
+          except Exception as e:
+              print(f'❌ Could not import version info: {e}')
+              exit(1)
+          "
+          deactivate
+          echo "::endgroup::"

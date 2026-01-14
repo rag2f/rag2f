@@ -1,0 +1,46 @@
+{
+  "name": "rag2f Devcontainer",
+  "image": "python:3.12",
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "version": "latest"
+    },
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "version": "latest",
+      "moby": false
+    },
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.12"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff",
+        "ms-azuretools.vscode-docker",
+        "usernamehw.errorlens",
+        "gruntfuggly.todo-tree"
+      ],
+      "settings": {
+        "ruff.configurationPreference": "filesystemFirst",
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff",
+          "editor.formatOnSave": true,
+          "editor.codeActionsOnSave": {
+            "source.organizeImports.ruff": "always",
+            "source.fixAll.ruff": "explicit"
+          }
+        }
+      }
+    }
+  },
+  "postCreateCommand": "bash scripts/bootstrap-venv.sh",
+  "postStartCommand": ". .venv/bin/activate && pip install uv && uv pip install -e . && pre-commit install",
+  "remoteUser": "vscode",
+  "containerEnv": {
+    "PYTHONPATH": "/workspaces/rag2f/src",
+    "PYTEST_RICH": "1"
+  }
+}

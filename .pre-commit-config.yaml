@@ -1,0 +1,12 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Use a stable tag that matches the Ruff version policy in your repo.
+    # If unsure, pick the latest available tag at implementation time.
+    rev: v0.14.11
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+        # Restrict to Python-related files; exclude notebooks unless explicitly desired.
+        types_or: [python, pyi]
+      - id: ruff-format
+        types_or: [python, pyi]

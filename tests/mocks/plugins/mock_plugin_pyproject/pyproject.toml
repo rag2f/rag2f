@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rag2f-test"
+version = "0.0.1"
+description = "test"
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "GPL-3.0"}
+authors = [
+    {name = "RAG2F Team"}
+]
+dependencies = [
+    "pip-install-test",
+]
+
+[project.urls]
+Homepage = "https://github.com/rag2f/rag2f"
+Repository = "https://github.com/rag2f/rag2f"
+
