@@ -159,6 +159,57 @@ class XFiles:
         self._registry[id] = entry
         logger.debug("Repository '%s' registered successfully.", id)
 
+    def register_batch(
+        self,
+        repositories: dict[str, BaseRepository | tuple[BaseRepository, dict[str, Any]]],
+    ) -> None:
+        """Register multiple repositories atomically using copy-on-write."""
+        if repositories is None:
+            repositories = {}
+
+        if not hasattr(repositories, "items"):
+            raise TypeError("repositories must be a mapping of id to repository entries")
+
+        new_registry = dict(self._registry)
+        inserted = 0
+
+        for id, value in repositories.items():
+            if not isinstance(id, str) or not id.strip():
+                raise ValueError(f"Invalid repository ID: {id!r}")
+
+            if isinstance(value, tuple):
+                if len(value) != 2:
+                    raise TypeError("Repository tuple must be (repository, meta)")
+                repository, meta = value
+            else:
+                repository = value
+                meta = {}
+
+            if not isinstance(repository, BaseRepository):
+                raise TypeError(f"Repository '{id}' does not implement the BaseRepository protocol")
+
+            if id in new_registry:
+                raise ValueError(f"Override not allowed for already registered repository: {id!r}")
+
+            if meta is None:
+                meta = {}
+            if not isinstance(meta, dict):
+                raise TypeError(f"Metadata for repository '{id}' must be a dict")
+
+            new_registry[id] = RepositoryEntry(
+                id=id,
+                repository=repository,
+                meta=meta,
+            )
+            inserted += 1
+
+        self._registry = new_registry
+        logger.debug(
+            "Batch-registered %d repositories; registry size now %d.",
+            inserted,
+            len(self._registry),
+        )
+
     def unregister(self, id: str) -> bool:
         """Unregister a repository by ID.
 
