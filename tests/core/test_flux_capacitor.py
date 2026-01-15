@@ -43,13 +43,13 @@ class InMemoryJobStore(BaseJobStore):
         if error:
             job.metadata["error"] = error
 
-    def get_children_ids(self, job_id: str) -> list[str]:
+    async def get_children_ids(self, job_id: str) -> list[str]:
         return list(self.children.get(job_id, []))
 
-    def get_root_jobs(self, input_id: str) -> list[str]:
+    async def get_root_jobs(self, input_id: str) -> list[str]:
         return list(self.roots.get(input_id, []))
 
-    def get_parent_id(self, job_id: str) -> str | None:
+    async def get_parent_id(self, job_id: str) -> str | None:
         return self.parents.get(job_id)
 
 

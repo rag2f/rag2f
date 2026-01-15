@@ -34,12 +34,12 @@ class PayloadRef:
 
     @classmethod
     def from_mapping(cls, payload: Optional[dict[str, Any]]) -> Optional["PayloadRef"]:
-        if payload is None:
+        if not payload:
             return None
         return cls(
-            repository=payload.get("repository"),
-            id=payload.get("id"),
-            meta=dict(payload.get("meta", {})),
+            repository=payload.get("repository", ""),
+            id=payload.get("id", ""),
+            meta=payload.get("meta", {}) or {},
         )
 
 
@@ -171,15 +171,15 @@ class BaseJobStore(ABC):
         await self.mark_status(job_id, JobStatus.FAILED, error=reason)
 
     @abstractmethod
-    def get_children_ids(self, job_id: str) -> list[str]:
+    async def get_children_ids(self, job_id: str) -> list[str]:
         """Return child job ids for a job."""
 
     @abstractmethod
-    def get_root_jobs(self, input_id: str) -> list[str]:
+    async def get_root_jobs(self, input_id: str) -> list[str]:
         """Return root job ids for a given input id."""
 
     @abstractmethod
-    def get_parent_id(self, job_id: str) -> Optional[str]:
+    async def get_parent_id(self, job_id: str) -> Optional[str]:
         """Return the parent job id for a job."""
 
     async def get_status_view(self, job_id: str) -> JobStatusView:
@@ -188,7 +188,7 @@ class BaseJobStore(ABC):
             if job is None:
                 raise KeyError(f"Job not found: {job_id}")
 
-            child_ids = self.get_children_ids(job_id)
+            child_ids = await self.get_children_ids(job_id)
             children_views: list[JobStatusView] = []
             leaves_total = 0
             leaves_done = 0
