@@ -45,9 +45,11 @@ rag2f-openai-embedder = ["rag2f-openai-embedder>=0.1.0.dev5"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+exclude = ["tests*", "scripts*"]
 
 [tool.setuptools.package-dir]
 "" = "src"
+
 [project.urls]
 Repository = "https://github.com/rag2f/rag2f"
 

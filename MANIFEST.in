@@ -1,9 +1,24 @@
-include README.md
-include LICENSE
-include NEXT_VERSION
-include config.example.json
-include pyproject.toml
+# --- File essenziali di packaging ---
+include pyproject.toml setup.cfg README.md LICENSE MANIFEST.in
+
+# --- Includi solo il codice e (se serve) eventuali dati runtime dentro src ---
 recursive-include src *.py
 
+
+# --- Togli cartelle da repo/dev ---
+prune .github
+prune .vscode
+prune .devcontainer
+prune tests
+prune scripts
+
+# --- Togli esempi / file locali se non necessari alla build ---
+exclude .env.example
+exclude config.example.json
+exclude NEXT_VERSION
+exclude SPOCK_README.md
+
+# --- Esclusioni generiche ---
+global-exclude *.pyc
 global-exclude __pycache__
-global-exclude *.py[co]
+global-exclude .DS_Store
