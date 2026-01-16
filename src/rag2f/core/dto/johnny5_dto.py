@@ -2,11 +2,11 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
-class InsertResponse(BaseModel):
-    """Response model for document insertion operations.
+class InsertResult(BaseModel):
+    """Result model for document insertion operations.
 
     Attributes:
         status: Status of the operation (success, duplicated, partial_success, failure)
@@ -24,15 +24,4 @@ class InsertResponse(BaseModel):
         default=None, description="Tracking ID for monitoring processing status"
     )
 
-    class Config:
-        """Pydantic model configuration."""
-
-        extra = "allow"
-        json_schema_extra = {
-            "example": {
-                "status": "success",
-                "message": "File 'document.pdf' uploaded successfully. Processing will continue in background.",
-                "track_id": "upload_20250729_170612_abc123",
-                "custom_field": "any value",
-            }
-        }
+    model_config = ConfigDict(extra="allow")

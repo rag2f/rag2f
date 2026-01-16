@@ -1,5 +1,7 @@
 """Hook integration tests for Morpheus and mock plugins."""
 
+from rag2f.core.dto.indiana_jones_dto import RetrieveResult, ReturnMode, SearchResult
+
 
 def test_get_id_input_text_hook_transforms_input(rag2f):
     """get_id_input_text must derive a deterministic id from the provided text."""
@@ -46,3 +48,38 @@ def test_handle_text_foreground_hook_completes_flow(rag2f):
 
     assert handled is True
     assert pending is False
+
+
+def test_indiana_jones_retrieve_hook_enriches_result(rag2f):
+    """indiana_jones_retrieve hook must enrich RetrieveResult with mock items."""
+    result = RetrieveResult(query="test query")
+
+    output = rag2f.morpheus.execute_hook(
+        "indiana_jones_retrieve", result, "test query", 10, rag2f=rag2f
+    )
+
+    assert isinstance(output, RetrieveResult)
+    assert output.query == "test query"
+    assert len(output.items) > 0
+    assert all(item.id.startswith("mock-item-") for item in output.items)
+
+
+def test_indiana_jones_search_hook_enriches_result(rag2f):
+    """indiana_jones_search hook must enrich SearchResult with mock data."""
+    result = SearchResult(query="test query")
+
+    output = rag2f.morpheus.execute_hook(
+        "indiana_jones_search",
+        result,
+        "test query",
+        10,
+        ReturnMode.WITH_ITEMS,
+        {},
+        rag2f=rag2f,
+    )
+
+    assert isinstance(output, SearchResult)
+    assert output.query == "test query"
+    assert output.response.startswith("Mock response")
+    assert len(output.items) > 0
+    assert len(output.used_source_ids) > 0

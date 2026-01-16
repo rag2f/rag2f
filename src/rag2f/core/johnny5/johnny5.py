@@ -7,7 +7,8 @@ Morpheus hooks.
 import logging
 import uuid
 
-from rag2f.core.dto.johnny5_dto import InsertResponse
+from rag2f.core.dto.johnny5_dto import InsertResult
+from rag2f.core.johnny5.exceptions import DuplicateInputError, InsertError
 
 logger = logging.getLogger(__name__)
 
@@ -28,18 +29,22 @@ class Johnny5:
         self.rag2f = rag2f_instance
         logger.debug("Johnny5 created ")
 
-    def handle_text_foreground(self, text: str) -> InsertResponse:
+    def handle_text_foreground(self, text: str) -> InsertResult:
         """Process text input through the foreground pipeline.
 
         Args:
             text: Input text.
 
         Returns:
-            An InsertResponse describing the processing result.
+            An InsertResult describing the processing result.
+
+        Raises:
+            InsertError: If input is empty or not handled by any hook.
+            DuplicateInputError: If input is detected as duplicate.
         """
         if text is None or not str(text).strip():
             logger.debug("handle_text_foreground input empty")
-            return InsertResponse(status="failure", message="Input text is empty")
+            raise InsertError("Input text is empty")
         id = None
         if self.rag2f:
             id = self.rag2f.morpheus.execute_hook(
@@ -55,7 +60,9 @@ class Johnny5:
             )  # TODO: missing a test that guarantees the hook pass-through and duplicated return
         if duplicated:
             logger.debug("handle_text_foreground input duplicated")
-            return InsertResponse(status="duplicated", message="Input text is duplicated")
+            raise DuplicateInputError(
+                "Input text is duplicated", context={"id": id, "text": text[:20]}
+            )
         done = False
         if self.rag2f:
             done = self.rag2f.morpheus.execute_hook(
@@ -63,8 +70,8 @@ class Johnny5:
             )  # TODO: missing a test that guarantees the hook pass-through and done return
         if not done:
             logger.debug("handle_text_foreground input not handled by any hook")
-            return InsertResponse(status="failure", message="Input text not handled")
-        return InsertResponse(status="success")
+            raise InsertError("Input text not handled by any hook")
+        return InsertResult(status="success", track_id=id)
 
 
 InputManager = Johnny5
