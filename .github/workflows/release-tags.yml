@@ -61,7 +61,7 @@ jobs:
           uv pip install --system -e '.[dev]'
 
       - name: Ruff lint (GitHub annotations)
-        run: ruff check --output-format=github src tests
+        run: ruff check --output-format=github --extend-exclude src/rag2f/_version.py src tests
 
       - name: Ruff format (check only)
         run: ruff format --check --extend-exclude src/rag2f/_version.py src tests
