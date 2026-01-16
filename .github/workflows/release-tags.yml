@@ -64,7 +64,7 @@ jobs:
         run: ruff check --output-format=github src tests
 
       - name: Ruff format (check only)
-        run: ruff format --check src tests
+        run: ruff format --check --extend-exclude src/rag2f/_version.py src tests
 
       - name: Run tests
         run: |
