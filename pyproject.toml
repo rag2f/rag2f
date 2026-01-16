@@ -95,6 +95,8 @@ line-length = 99
 indent-width = 4
 # src-layout hint: treat imports from src/ as first-party
 src = ["src"]
+# Exclude auto-generated version files (setuptools-scm)
+exclude = ["*/_version.py"]
 
 [tool.ruff.lint]
 # Lint set: useful defaults + stronger security
