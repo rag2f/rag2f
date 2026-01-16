@@ -53,7 +53,27 @@ jobs:
       - name: Install build tools
         run: |
           python -m pip install --upgrade pip
-          pip install build "setuptools-scm[toml]>=8.0" wheel
+          pip install build "setuptools-scm[toml]>=8.0" wheel packaging
+
+      - name: Install dependencies (dev) for checks
+        run: |
+          pip install uv
+          uv pip install --system -e '.[dev]'
+
+      - name: Ruff lint (GitHub annotations)
+        run: ruff check --output-format=github src tests
+
+      - name: Ruff format (check only)
+        run: ruff format --check src tests
+
+      - name: Run tests
+        run: |
+          pytest -v
+
+      - name: Run pip-audit
+        run: |
+          python -m pip install pip-audit
+          pip-audit
 
       - name: Validate src/ structure
         run: |
@@ -128,8 +148,20 @@ jobs:
         run: |
           TAG="${{ steps.release_type.outputs.tag }}"
           VERSION="${TAG#v}"
+          # Accept both v0.0.1 and v.0.0.1
+          VERSION="${VERSION#.}"
+
+          # Validate PEP 440 version (fails fast with a clear message)
+          python -c "from packaging.version import Version; Version('$VERSION')" || {
+            echo "❌ ERROR: Invalid version extracted from tag '$TAG' -> '$VERSION' (expected PEP 440 like 0.0.1, 1.2.3rc1)"
+            exit 1
+          }
+
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Extracted version: $VERSION"
+
+          # Force setuptools-scm to use the tag-derived version even if the tag format is unusual.
+          echo "SETUPTOOLS_SCM_PRETEND_VERSION_FOR_RAG2F=$VERSION" >> $GITHUB_ENV
 
       - name: Build package
         run: |
@@ -147,6 +179,23 @@ jobs:
             echo "Contents of $whl:"
             unzip -l "$whl" | head -50
           done
+
+          echo "::endgroup::"
+
+      - name: Verify wheel contains only src/
+        run: |
+          echo "::group::Verifying wheel does not include repo-only files"
+          WHEEL_FILE=$(ls dist/*.whl | head -1)
+          if python -m zipfile -l "$WHEEL_FILE" | grep -E '^(plugins/|tests/|test/|temp/|scripts/)' -q; then
+            echo "❌ ERROR: Wheel includes files outside src/ (plugins/tests/temp/scripts detected)"
+            python -m zipfile -l "$WHEEL_FILE" | grep -E 'plugins/|tests/|test/|temp/|scripts/' || true
+            exit 1
+          fi
+          if ! python -m zipfile -l "$WHEEL_FILE" | grep -q 'rag2f/__init__.py'; then
+            echo "❌ ERROR: rag2f package not found in wheel"
+            exit 1
+          fi
+          echo "✅ Wheel contents look OK"
           echo "::endgroup::"
 
       - name: Generate SHA256 checksums
@@ -229,21 +278,22 @@ jobs:
             attempt=$((attempt + 1))
             sleep "$sleep_seconds"
           done
+
           python -c "
           import rag2f
           print('✅ Successfully imported rag2f')
           try:
-              print(f'__version__: {getattr(rag2f, '__version__', None)}')
-              print(f'__commit__: {getattr(rag2f, '__commit__', None)}')
-              print(f'__distance__: {getattr(rag2f, '__distance__', None)}')
+              print('__version__:', getattr(rag2f, '__version__', None))
+              print('__commit__:', getattr(rag2f, '__commit__', None))
+              print('__distance__:', getattr(rag2f, '__distance__', None))
               expected = '$VERSION'
               if rag2f.__version__ != expected:
                   print(f'❌ Version mismatch! Expected {expected}, got {rag2f.__version__}')
-                  exit(1)
+                  raise SystemExit(1)
               print('✅ Version matches tag')
           except Exception as e:
               print(f'❌ Could not import version info: {e}')
-              exit(1)
+              raise SystemExit(1)
           "
           deactivate
           echo "::endgroup::"
