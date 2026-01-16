@@ -1,4 +1,4 @@
-# RAG2F — Code Agent Instructions (v2)
+# RAG2F — Code Agent Instructions
 
 **Purpose**  
 Normative rules for contributing to RAG2F. This page explains **how** to work on the repo (style, tests, plugins, config).  

@@ -29,8 +29,8 @@ Key principles:
   Mock plugins used for integration-style tests.
 - `core/`  
   Tests for core RAG2F components.
-- `morpheus/`  
-  Tests for plugin loading, hooks, and execution flow.
+- `**/`  
+  Tests for other classes.
 
 ---
 
