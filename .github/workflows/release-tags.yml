@@ -151,10 +151,12 @@ jobs:
 
       - name: Generate SHA256 checksums
         run: |
-          cd dist
-          sha256sum * > SHA256SUMS.txt
-          cat SHA256SUMS.txt
-          cd ..
+          mkdir -p release-assets
+          (
+            cd dist
+            sha256sum *.whl *.tar.gz
+          ) > release-assets/SHA256SUMS.txt
+          cat release-assets/SHA256SUMS.txt
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
@@ -168,7 +170,9 @@ jobs:
           tag_name: ${{ steps.release_type.outputs.tag }}
           prerelease: ${{ steps.release_type.outputs.is_prerelease }}
           files: |
-            dist/*
+            dist/*.whl
+            dist/*.tar.gz
+            release-assets/SHA256SUMS.txt
           body: |
             ## Release ${{ steps.version.outputs.version }}
             
