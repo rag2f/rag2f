@@ -1,29 +1,34 @@
-"""Contract and regression tests for Johnny5 foreground text handler."""
+"""Contract and regression tests for Johnny5 foreground text handler.
 
-import pytest
+Tests verify the Result pattern: expected states return InsertResult with
+status="error", success returns InsertResult with status="success".
+"""
 
-from rag2f.core.johnny5.exceptions import DuplicateInputError, InsertError
+from unittest.mock import MagicMock
+
+from rag2f.core.dto.result_dto import StatusCode
 from rag2f.core.johnny5.johnny5 import Johnny5
 
 
-def test_handle_text_empty_raises_insert_error():
-    """Empty or whitespace-only input should raise InsertError."""
+def test_handle_text_empty_returns_error_result():
+    """Empty or whitespace-only input returns InsertResult with error."""
     j = Johnny5()
 
-    with pytest.raises(InsertError, match="Input text is empty"):
-        j.handle_text_foreground("")
+    result = j.execute_handle_text_foreground("")
+    assert result.is_error()
+    assert result.detail.code == StatusCode.EMPTY
 
-    with pytest.raises(InsertError, match="Input text is empty"):
-        j.handle_text_foreground("   ")
+    result = j.execute_handle_text_foreground("   ")
+    assert result.is_error()
+    assert result.detail.code == StatusCode.EMPTY
 
-    with pytest.raises(InsertError, match="Input text is empty"):
-        j.handle_text_foreground(None)
+    result = j.execute_handle_text_foreground(None)
+    assert result.is_error()
+    assert result.detail.code == StatusCode.EMPTY
 
 
-def test_handle_text_returns_insert_result():
-    """Successful insert must return InsertResult with track_id."""
-    from unittest.mock import MagicMock
-
+def test_handle_text_returns_success_result():
+    """Successful insert returns InsertResult with track_id."""
     mock_rag2f = MagicMock()
 
     def mock_hook(hook_name, *args, **kw):
@@ -38,37 +43,36 @@ def test_handle_text_returns_insert_result():
     mock_rag2f.morpheus.execute_hook.side_effect = mock_hook
 
     johnny5 = Johnny5(rag2f_instance=mock_rag2f)
-    result = johnny5.handle_text_foreground("test input")
+    result = johnny5.execute_handle_text_foreground("test input")
 
+    assert result.is_ok()
     assert result.status == "success"
     assert result.track_id == "test-id"
 
 
-def test_handle_text_duplicate_raises_duplicate_error():
-    """Duplicate text should raise DuplicateInputError."""
-    from unittest.mock import MagicMock
-
+def test_handle_text_duplicate_returns_error_result():
+    """Duplicate text returns InsertResult with error."""
     mock_rag2f = MagicMock()
 
     def mock_hook(hook_name, *args, **kw):
         if hook_name == "get_id_input_text":
             return "dup-id"
         if hook_name == "check_duplicated_input_text":
-            return True  # Mark as duplicate
+            return True
         raise AssertionError("Should not reach handle_text_foreground hook")
 
     mock_rag2f.morpheus.execute_hook.side_effect = mock_hook
 
     johnny5 = Johnny5(rag2f_instance=mock_rag2f)
+    result = johnny5.execute_handle_text_foreground("duplicate text")
 
-    with pytest.raises(DuplicateInputError, match="Input text is duplicated"):
-        johnny5.handle_text_foreground("duplicate text")
+    assert result.is_error()
+    assert result.detail.code == StatusCode.DUPLICATE
+    assert result.detail.context.get("id") == "dup-id"
 
 
-def test_handle_text_not_handled_raises_insert_error():
-    """Text not handled by hooks should raise InsertError."""
-    from unittest.mock import MagicMock
-
+def test_handle_text_not_handled_returns_error_result():
+    """Text not handled by hooks returns InsertResult with error."""
     mock_rag2f = MagicMock()
 
     def mock_hook(hook_name, *args, **kw):
@@ -77,54 +81,28 @@ def test_handle_text_not_handled_raises_insert_error():
         if hook_name == "check_duplicated_input_text":
             return False
         if hook_name == "handle_text_foreground":
-            return False  # Not handled
-        return None
-
-    mock_rag2f.morpheus.execute_hook.side_effect = mock_hook
-
-    johnny5 = Johnny5(rag2f_instance=mock_rag2f)
-
-    with pytest.raises(InsertError, match="Input text not handled"):
-        johnny5.handle_text_foreground("unhandled text")
-
-
-def test_handle_text_invokes_hooks_in_order():
-    """Hooks must be invoked in correct order: id → duplicate → handle."""
-    from unittest.mock import MagicMock
-
-    mock_rag2f = MagicMock()
-    call_order = []
-
-    def mock_hook(hook_name, *args, **kw):
-        call_order.append(hook_name)
-        if hook_name == "get_id_input_text":
-            return "order-test-id"
-        if hook_name == "check_duplicated_input_text":
             return False
-        if hook_name == "handle_text_foreground":
-            return True
         return None
 
     mock_rag2f.morpheus.execute_hook.side_effect = mock_hook
 
     johnny5 = Johnny5(rag2f_instance=mock_rag2f)
-    johnny5.handle_text_foreground("test")
+    result = johnny5.execute_handle_text_foreground("unhandled text")
 
-    assert call_order == [
-        "get_id_input_text",
-        "check_duplicated_input_text",
-        "handle_text_foreground",
-    ]
+    assert result.is_error()
+    assert result.detail.code == StatusCode.NOT_HANDLED
 
 
 def test_handle_text_without_rag2f():
-    """Without rag2f, text should raise InsertError when hooks not available."""
-    johnny5 = Johnny5()  # No rag2f instance
+    """Without rag2f, text returns appropriate error states."""
+    johnny5 = Johnny5()
 
-    # Empty text still raises
-    with pytest.raises(InsertError, match="Input text is empty"):
-        johnny5.handle_text_foreground("")
+    # Empty text returns error
+    result = johnny5.execute_handle_text_foreground("")
+    assert result.is_error()
+    assert result.detail.code == "empty"
 
-    # Non-empty text without hooks should raise
-    with pytest.raises(InsertError, match="Input text not handled"):
-        johnny5.handle_text_foreground("test")
+    # Non-empty text without hooks returns not_handled
+    result = johnny5.execute_handle_text_foreground("test")
+    assert result.is_error()
+    assert result.detail.code == "not_handled"

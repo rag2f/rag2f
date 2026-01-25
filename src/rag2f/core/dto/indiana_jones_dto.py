@@ -1,7 +1,7 @@
 """DTOs for IndianaJones retrieval and search operations.
 
-Core types for RAG retrieval and synthesis. All types support extensibility
-via the `extra` dict field for plugin enrichment.
+Core types for RAG retrieval and synthesis. Expected states (empty query, etc.)
+return status="error". System errors (backend crash) raise exceptions.
 """
 
 from collections.abc import Mapping
@@ -9,6 +9,8 @@ from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+from rag2f.core.dto.result_dto import BaseResult
 
 
 class ReturnMode(str, Enum):
@@ -47,40 +49,61 @@ class RetrievedItem(BaseModel):
         return self.model_dump()
 
 
-class RetrieveResult(BaseModel):
+class RetrieveResult(BaseResult):
     """Result of a retrieve() operation.
 
+    [Result Pattern] Check result.is_ok() before using fields.
+
     Attributes:
+        status: "success" if retrieval succeeded, "error" otherwise.
         query: The original query string.
         items: List of retrieved items, ordered by relevance.
         extra: Plugin extension point for additional data.
+        detail: Status details if status="error".
+
+    Example:
+        >>> result = indiana.retrieve("how does X work?", k=5)
+        >>> if result.is_ok():
+        ...     for item in result.items:
+        ...         print(item.text[:100])
+        >>> else:
+        ...     print(f"Error [{result.detail.code}]: {result.detail.message}")
     """
 
-    query: str = Field(description="Original query string")
+    query: str = Field(default="", description="Original query string")
     items: list[RetrievedItem] = Field(
         default_factory=list, description="Retrieved items ordered by relevance"
     )
     extra: dict[str, Any] = Field(default_factory=dict, description="Plugin extension point")
-
-    model_config = {"extra": "forbid"}
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to JSON-compatible dictionary."""
         return self.model_dump()
 
 
-class SearchResult(BaseModel):
+class SearchResult(BaseResult):
     """Result of a search() operation (retrieval + synthesis).
 
+    [Result Pattern] Check result.is_ok() before using fields.
+
     Attributes:
+        status: "success" if search succeeded, "error" otherwise.
         query: The original query string.
         response: The synthesized answer.
         used_source_ids: IDs of sources used in the response.
         items: Retrieved items (populated only when requested via return_mode).
         extra: Plugin extension point for additional data.
+        detail: Status details if status="error".
+
+    Example:
+        >>> result = indiana.search("how does X work?", k=5)
+        >>> if result.is_ok():
+        ...     print(result.response)
+        >>> else:
+        ...     print(f"Error [{result.detail.code}]: {result.detail.message}")
     """
 
-    query: str = Field(description="Original query string")
+    query: str = Field(default="", description="Original query string")
     response: str = Field(default="", description="Synthesized answer")
     used_source_ids: list[str] = Field(
         default_factory=list, description="IDs of sources used in the response"
@@ -89,8 +112,6 @@ class SearchResult(BaseModel):
         default=None, description="Retrieved items (when requested)"
     )
     extra: dict[str, Any] = Field(default_factory=dict, description="Plugin extension point")
-
-    model_config = {"extra": "forbid"}
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to JSON-compatible dictionary."""

@@ -1,7 +1,8 @@
 """IndianaJones retrieve manager.
 
 IndianaJones handles RAG retrieval and search operations with extensible
-backends and plugin enrichment.
+backends and plugin enrichment. Expected states (empty query) return
+Result with status="error". System errors (backend crash) raise exceptions.
 
 "Fortune and glory, kid. Fortune and glory."
 """
@@ -14,6 +15,7 @@ from rag2f.core.dto.indiana_jones_dto import (
     ReturnMode,
     SearchResult,
 )
+from rag2f.core.dto.result_dto import StatusCode, StatusDetail
 from rag2f.core.indiana_jones.exceptions import (
     RetrievalError,
 )
@@ -40,8 +42,10 @@ class IndianaJones:
         self.rag2f = rag2f_instance
         logger.debug("IndianaJones created")
 
-    def retrieve(self, query: str, k: int = 10, **kwargs: Any) -> RetrieveResult:
+    def execute_retrieve(self, query: str, k: int = 10, **kwargs: Any) -> RetrieveResult:
         """Retrieve relevant items for a query.
+
+        [Result Pattern] Check result.is_ok() before using fields.
 
         Args:
             query: The search query string.
@@ -49,19 +53,22 @@ class IndianaJones:
             **kwargs: Backend-specific parameters.
 
         Returns:
-            RetrieveResult containing the query and retrieved items.
+            RetrieveResult with status="success" and items if retrieval succeeded,
+            or status="error" with detail for expected failures:
+            - StatusCode.EMPTY: Query is empty or whitespace-only
 
         Raises:
-            RetrievalError: If retrieval fails.
+            RetrievalError: Only for system errors (backend crash, timeout).
         """
-        logger.debug("IndianaJones.retrieve query=%r k=%d", query, k)
+        logger.debug("IndianaJones.execute_retrieve query=%r k=%d", query, k)
+
         if query is None or not str(query).strip():
-            raise RetrievalError(
-                "Retrieval failed: query is empty",
-                context={"query": query, "k": k, "kwargs": kwargs},
+            return RetrieveResult.fail(
+                StatusDetail(code=StatusCode.EMPTY, message="Query is empty")
             )
+
         try:
-            result = RetrieveResult(query=query)
+            result = RetrieveResult.success(query=query)
             if self.rag2f:
                 result = self.rag2f.morpheus.execute_hook(
                     "indiana_jones_retrieve", result, query, k, rag2f=self.rag2f
@@ -73,10 +80,10 @@ class IndianaJones:
                 context={"query": query, "k": k, "kwargs": kwargs},
             ) from e
 
-        logger.debug("IndianaJones.retrieve returned %d items", len(result.items))
+        logger.debug("IndianaJones.execute_retrieve returned %d items", len(result.items))
         return result
 
-    def search(
+    def execute_search(
         self,
         query: str,
         k: int = 10,
@@ -85,6 +92,8 @@ class IndianaJones:
     ) -> SearchResult:
         """Retrieve and synthesize a response for a query.
 
+        [Result Pattern] Check result.is_ok() before using fields.
+
         Args:
             query: The search query string.
             k: Maximum number of items to retrieve.
@@ -92,31 +101,35 @@ class IndianaJones:
             **kwargs: Backend-specific parameters.
 
         Returns:
-            SearchResult containing the synthesized response and attribution.
+            SearchResult with status="success" if search succeeded,
+            or status="error" with detail for expected failures:
+            - StatusCode.EMPTY: Query is empty or whitespace-only
 
         Raises:
-            RetrievalError: If retrieval fails.
+            RetrievalError: Only for system errors (backend crash, timeout).
         """
-
         logger.debug(
-            "IndianaJones.search query=%r k=%d return_mode=%s", query, k, return_mode.value
+            "IndianaJones.execute_search query=%r k=%d return_mode=%s", query, k, return_mode.value
         )
 
         if query is None or not str(query).strip():
+            return SearchResult.fail(StatusDetail(code=StatusCode.EMPTY, message="Query is empty"))
+
+        try:
+            result = SearchResult.success(query=query)
+            if self.rag2f:
+                result = self.rag2f.morpheus.execute_hook(
+                    "indiana_jones_search", result, query, k, return_mode, kwargs, rag2f=self.rag2f
+                )
+        except Exception as e:
+            logger.error("IndianaJones search failed: %s", e)
             raise RetrievalError(
-                "Retrieval failed: query is empty",
+                f"Search failed: {e}",
                 context={"query": query, "k": k, "kwargs": kwargs},
-            )
-
-        result = SearchResult(query=query)
-
-        if self.rag2f:
-            result = self.rag2f.morpheus.execute_hook(
-                "indiana_jones_search", result, query, k, return_mode, kwargs, rag2f=self.rag2f
-            )
+            ) from e
 
         logger.debug(
-            "IndianaJones.search completed: response_len=%d used_sources=%d",
+            "IndianaJones.execute_search completed: response_len=%d used_sources=%d",
             len(result.response),
             len(result.used_source_ids),
         )

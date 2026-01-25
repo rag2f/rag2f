@@ -4,6 +4,7 @@ import logging
 
 import pytest
 
+from rag2f.core.dto.result_dto import StatusCode
 from rag2f.core.xfiles import BaseRepository, XFiles, minimal_crud_capabilities
 
 
@@ -49,26 +50,34 @@ class TestXFilesManager:
 
     @pytest.mark.parametrize("bad_id", [None, 123, "", "   "])
     def test_register_rejects_invalid_id(self, bad_id):
-        """Register should reject invalid repository ids."""
+        """Register should return error result for invalid repository ids."""
         xfiles = XFiles()
         repo = DummyRepository()
-        with pytest.raises(ValueError, match="Invalid repository ID"):
-            xfiles.register(bad_id, repo)  # type: ignore[arg-type]
+        result = xfiles.execute_register(bad_id, repo)  # type: ignore[arg-type]
+        assert result.is_error()
+        assert result.detail.code == StatusCode.INVALID
+        assert "Invalid repository ID" in result.detail.message
 
     def test_register_rejects_non_repository(self):
-        """Register should reject non-BaseRepository objects."""
+        """Register should return error result for non-BaseRepository objects."""
         xfiles = XFiles()
-        with pytest.raises(TypeError, match="does not implement the BaseRepository protocol"):
-            xfiles.register("not_a_repo", object())  # type: ignore[arg-type]
+        result = xfiles.execute_register("not_a_repo", object())  # type: ignore[arg-type]
+        assert result.is_error()
+        assert result.detail.code == StatusCode.INVALID
+        assert "does not implement the BaseRepository protocol" in result.detail.message
 
     def test_register_success_and_meta_copy(self):
         """Register should store repositories and meta should be copied on read."""
         xfiles = XFiles()
         repo = DummyRepository()
 
-        xfiles.register("repo1", repo)
+        result = xfiles.execute_register("repo1", repo)
 
-        assert xfiles.get("repo1") is repo
+        assert result.is_ok()
+        assert result.created is True
+        get_result = xfiles.execute_get("repo1")
+        assert get_result.is_ok()
+        assert get_result.repository is repo
         assert xfiles.has("repo1") is True
 
         meta1 = xfiles.get_meta("repo1")
@@ -79,18 +88,28 @@ class TestXFilesManager:
         assert xfiles.get_meta("repo1") == {}
 
     def test_register_duplicate_same_instance_warns_and_does_not_override_meta(self, caplog):
-        """Re-registering the same instance should warn and keep original meta."""
+        """Re-registering the same instance should return success with duplicate detail."""
         xfiles = XFiles()
         repo = DummyRepository()
 
-        xfiles.register("repo1", repo, meta={"domain": "users"})
+        result1 = xfiles.execute_register("repo1", repo, meta={"domain": "users"})
+        assert result1.is_ok()
+        assert result1.created is True
 
         caplog.set_level(logging.WARNING, logger="rag2f.core.xfiles.xfiles")
-        xfiles.register("repo1", repo, meta={"domain": "orders"})
+        result2 = xfiles.execute_register("repo1", repo, meta={"domain": "orders"})
+
+        # Should return success but created=False with DUPLICATE detail
+        assert result2.is_ok()
+        assert result2.created is False
+        assert result2.detail is not None
+        assert result2.detail.code == StatusCode.DUPLICATE
 
         # Should keep original registration (no override)
         assert len(xfiles) == 1
-        assert xfiles.get("repo1") is repo
+        get_result = xfiles.execute_get("repo1")
+        assert get_result.is_ok()
+        assert get_result.repository is repo
         assert xfiles.get_meta("repo1") == {"domain": "users"}
 
         assert any(
@@ -98,17 +117,24 @@ class TestXFilesManager:
             for rec in caplog.records
         )
 
-    def test_register_duplicate_different_instance_raises(self):
-        """Register should refuse overriding an id with a different instance."""
+    def test_register_duplicate_different_instance_returns_error(self):
+        """Register should return error when overriding an id with a different instance."""
         xfiles = XFiles()
         repo1 = DummyRepository(name="r1")
         repo2 = DummyRepository(name="r2")
 
-        xfiles.register("repo1", repo1)
-        with pytest.raises(ValueError, match="Override not allowed"):
-            xfiles.register("repo1", repo2)
+        result1 = xfiles.execute_register("repo1", repo1)
+        assert result1.is_ok()
+        assert result1.created is True
 
-        assert xfiles.get("repo1") is repo1
+        result2 = xfiles.execute_register("repo1", repo2)
+        assert result2.is_error()
+        assert result2.detail.code == StatusCode.ALREADY_EXISTS
+        assert "Override not allowed" in result2.detail.message
+
+        get_result = xfiles.execute_get("repo1")
+        assert get_result.is_ok()
+        assert get_result.repository is repo1
 
     def test_unregister_removes_and_returns_expected_flags(self):
         """Unregister should return a boolean indicating removal."""
@@ -117,22 +143,35 @@ class TestXFilesManager:
         assert xfiles.unregister("missing") is False
 
         repo = DummyRepository()
-        xfiles.register("repo1", repo)
+        result = xfiles.execute_register("repo1", repo)
+        assert result.is_ok()
 
         assert xfiles.unregister("repo1") is True
         assert xfiles.has("repo1") is False
-        assert xfiles.get("repo1") is None
+        get_result = xfiles.execute_get("repo1")
+        # Not found is an expected state, returns success with NOT_FOUND detail
+        assert get_result.is_ok()
+        assert get_result.repository is None
+        assert get_result.detail is not None
+        assert get_result.detail.code == StatusCode.NOT_FOUND
 
         # Second removal should be false
         assert xfiles.unregister("repo1") is False
 
     def test_register_same_instance_is_idempotent(self):
-        """Registering the same instance twice should be a no-op."""
+        """Registering the same instance twice should be handled gracefully."""
         xfiles = XFiles()
         repo = DummyRepository()
 
-        xfiles.register("repo", repo)
-        xfiles.register("repo", repo)
+        result1 = xfiles.execute_register("repo", repo)
+        assert result1.is_ok()
+        assert result1.created is True
+
+        result2 = xfiles.execute_register("repo", repo)
+        assert result2.is_ok()
+        assert result2.created is False
 
         assert len(xfiles.list_ids()) == 1
-        assert xfiles.get("repo") is repo
+        get_result = xfiles.execute_get("repo")
+        assert get_result.is_ok()
+        assert get_result.repository is repo

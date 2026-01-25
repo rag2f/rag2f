@@ -18,6 +18,8 @@ from typing import (
     TypeVar,
 )
 
+from rag2f.core.dto.result_dto import StatusCode, StatusDetail
+from rag2f.core.dto.xfiles_dto import GetResult, RegisterResult, SearchRepoResult
 from rag2f.core.xfiles.capabilities import Capabilities
 from rag2f.core.xfiles.repository import (
     BaseRepository,
@@ -104,13 +106,15 @@ class XFiles:
     # REGISTRATION
     # =========================================================================
 
-    def register(
+    def execute_register(
         self,
         id: str,
         repository: BaseRepository,
         meta: dict[str, Any] | None = None,
-    ) -> None:
+    ) -> RegisterResult:
         """Register a repository with the given ID.
+
+        [Result Pattern] Check result.is_ok() and result.created for status.
 
         Args:
             id: Unique identifier for the repository.
@@ -118,28 +122,45 @@ class XFiles:
             meta: Optional metadata for searching/filtering.
                 Common keys: "type", "domain", "purpose", "tags".
 
-        Raises:
-            ValueError: If ID is invalid or already exists.
-            TypeError: If repository doesn't implement BaseRepository.
+        Returns:
+            RegisterResult with:
+            - success + created=True: New registration
+            - success + created=False + detail(DUPLICATE): Same instance (skipped)
+            - error + detail(ALREADY_EXISTS): Different instance with same ID
+            - error + detail(INVALID): Invalid ID or repository type
 
         Example:
-            >>> xfiles.register(
+            >>> result = xfiles.execute_register(
             ...     "orders_sql",
             ...     postgres_repo,
-            ...     meta={
-            ...         "type": "postgresql",
-            ...         "domain": "orders",
-            ...         "tags": ["sql", "transactional"],
-            ...     },
+            ...     meta={"type": "postgresql", "domain": "orders"},
             ... )
+            >>> if result.is_ok() and result.created:
+            ...     print("Registered!")
         """
         # Validate ID
         if not isinstance(id, str) or not id.strip():
-            raise ValueError(f"Invalid repository ID: {id!r}")
+            return RegisterResult.fail(
+                StatusDetail(
+                    code=StatusCode.INVALID,
+                    message=f"Invalid repository ID: {id!r}",
+                    context={"id": id},
+                ),
+                id=str(id) if id else "",
+                created=False,
+            )
 
         # Protocol compliance
         if not isinstance(repository, BaseRepository):
-            raise TypeError(f"Repository '{id}' does not implement the BaseRepository protocol")
+            return RegisterResult.fail(
+                StatusDetail(
+                    code=StatusCode.INVALID,
+                    message=f"Repository '{id}' does not implement the BaseRepository protocol",
+                    context={"id": id, "type": type(repository).__name__},
+                ),
+                id=id,
+                created=False,
+            )
 
         # Override policy: do not allow overriding existing registrations
         if id in self._registry:
@@ -148,8 +169,23 @@ class XFiles:
                     "Repository '%s' already registered with the same instance; attention and investigate because this could be a poor use of resources. Skipping.",
                     id,
                 )
-                return
-            raise ValueError(f"Override not allowed for already registered repository: {id!r}")
+                return RegisterResult.success(
+                    id=id,
+                    created=False,
+                    detail=StatusDetail(
+                        code=StatusCode.DUPLICATE,
+                        message="Same instance already registered",
+                    ),
+                )
+            return RegisterResult.fail(
+                StatusDetail(
+                    code=StatusCode.ALREADY_EXISTS,
+                    message=f"Override not allowed for already registered repository: {id!r}",
+                    context={"id": id},
+                ),
+                id=id,
+                created=False,
+            )
 
         entry = RepositoryEntry(
             id=id,
@@ -158,6 +194,7 @@ class XFiles:
         )
         self._registry[id] = entry
         logger.debug("Repository '%s' registered successfully.", id)
+        return RegisterResult.success(id=id, created=True)
 
     def unregister(self, id: str) -> bool:
         """Unregister a repository by ID.
@@ -178,20 +215,32 @@ class XFiles:
     # LOOKUP
     # =========================================================================
 
-    def get(self, id: str) -> BaseRepository | None:
+    def execute_get(self, id: str) -> GetResult:
         """Get a repository by its ID.
+
+        [Result Pattern] Check result.is_ok() and result.repository.
 
         Args:
             id: The repository identifier.
 
         Returns:
-            The repository instance if found, None otherwise.
+            GetResult with:
+            - success: Repository found in result.repository
+            - success + detail(NOT_FOUND): Repository not found (expected state)
         """
         entry = self._registry.get(id)
         if entry is None:
             logger.debug("Repository '%s' not found in registry.", id)
-            return None
-        return entry.repository
+            return GetResult.success(
+                repository=None,
+                id=id,
+                detail=StatusDetail(
+                    code=StatusCode.NOT_FOUND,
+                    message=f"Repository '{id}' not found",
+                    context={"id": id},
+                ),
+            )
+        return GetResult.success(repository=entry.repository, id=id)
 
     def get_typed(self, id: str, protocol: type[T]) -> T | None:
         """Get a repository by ID with type checking.
@@ -263,70 +312,61 @@ class XFiles:
     # SEARCH
     # =========================================================================
 
-    def search(
+    def execute_search(
         self,
         predicate: Callable[[dict[str, Any]], bool],
-    ) -> list[BaseRepository]:
+    ) -> SearchRepoResult:
         """Search repositories by metadata predicate.
 
+        [Result Pattern] Check result.is_ok() and result.repositories.
+
         Args:
             predicate: Function that takes metadata dict and returns
                 True if the repository should be included.
 
         Returns:
-            List of matching repositories.
+            SearchRepoResult with:
+            - success: Search completed, repositories in result.repositories
+            - success + detail(NO_RESULTS): No matches found (informational)
 
         Example:
-            >>> # Find all SQL repositories
-            >>> sql_repos = xfiles.search(lambda m: m.get("type") in ("postgresql", "mysql"))
-            >>>
-            >>> # Find repositories with specific tag
-            >>> cached = xfiles.search(lambda m: "cache" in m.get("tags", []))
+            >>> result = xfiles.execute_search(lambda m: m.get("type") == "mongodb")
+            >>> if result.is_ok():
+            ...     for repo in result.repositories:
+            ...         use(repo)
         """
-        results = []
+        repositories = []
+        ids = []
         for entry in self._registry.values():
             try:
                 if predicate(entry.meta):
-                    results.append(entry.repository)
+                    repositories.append(entry.repository)
+                    ids.append(entry.id)
             except Exception as e:
                 logger.warning(
                     "Predicate failed for repository '%s': %s",
                     entry.id,
                     e,
                 )
-        return results
 
-    def search_ids(
-        self,
-        predicate: Callable[[dict[str, Any]], bool],
-    ) -> list[str]:
-        """Search repository IDs by metadata predicate.
+        if not repositories:
+            return SearchRepoResult.success(
+                repositories=[],
+                ids=[],
+                detail=StatusDetail(
+                    code=StatusCode.NO_RESULTS,
+                    message="No repositories matched the predicate",
+                ),
+            )
+        return SearchRepoResult.success(repositories=repositories, ids=ids)
 
-        Args:
-            predicate: Function that takes metadata dict and returns
-                True if the repository should be included.
-
-        Returns:
-            List of matching repository IDs.
-        """
-        results = []
-        for entry in self._registry.values():
-            try:
-                if predicate(entry.meta):
-                    results.append(entry.id)
-            except Exception as e:
-                logger.warning(
-                    "Predicate failed for repository '%s': %s",
-                    entry.id,
-                    e,
-                )
-        return results
-
-    def search_by_meta(
+    def execute_search_by_meta(
         self,
         **criteria: Any,
-    ) -> list[BaseRepository]:
+    ) -> SearchRepoResult:
         """Search repositories by exact metadata key-value matches.
+
+        [Result Pattern] Check result.is_ok() and result.repositories.
 
         Args:
             **criteria: Key-value pairs that must match in metadata.
@@ -335,11 +375,13 @@ class XFiles:
                 - None: key must exist in meta.
 
         Returns:
-            List of matching repositories.
+            SearchRepoResult with matching repositories.
 
         Example:
-            >>> # Find all MongoDB repositories in users domain
-            >>> repos = xfiles.search_by_meta(type="mongodb", domain="users")
+            >>> result = xfiles.execute_search_by_meta(type="mongodb", domain="users")
+            >>> if result.is_ok():
+            ...     for repo in result.repositories:
+            ...         use(repo)
         """
 
         def matcher(meta: dict[str, Any]) -> bool:
@@ -358,45 +400,56 @@ class XFiles:
                     return False
             return True
 
-        return self.search(matcher)
+        return self.execute_search(matcher)
 
-    def search_by_capability(
+    def execute_search_by_capability(
         self,
         capability_check: Callable[[Capabilities], bool],
-    ) -> list[BaseRepository]:
+    ) -> SearchRepoResult:
         """Search repositories by capability predicate.
+
+        [Result Pattern] Check result.is_ok() and result.repositories.
 
         Args:
             capability_check: Function that takes Capabilities and returns
                 True if the repository should be included.
 
         Returns:
-            List of matching repositories.
+            SearchRepoResult with matching repositories.
 
         Example:
-            >>> # Find all repositories that support vector search
-            >>> vector_repos = xfiles.search_by_capability(
+            >>> result = xfiles.execute_search_by_capability(
             ...     lambda c: c.vector_search.supported
             ... )
-            >>>
-            >>> # Find repos with native pushdown filtering
-            >>> pushdown_repos = xfiles.search_by_capability(
-            ...     lambda c: c.filter.supported and c.filter.pushdown
-            ... )
+            >>> if result.is_ok():
+            ...     for repo in result.repositories:
+            ...         use(repo)
         """
-        results = []
+        repositories = []
+        ids = []
         for entry in self._registry.values():
             try:
                 caps = entry.repository.capabilities()
                 if capability_check(caps):
-                    results.append(entry.repository)
+                    repositories.append(entry.repository)
+                    ids.append(entry.id)
             except Exception as e:
                 logger.warning(
                     "Capability check failed for repository '%s': %s",
                     entry.id,
                     e,
                 )
-        return results
+
+        if not repositories:
+            return SearchRepoResult.success(
+                repositories=[],
+                ids=[],
+                detail=StatusDetail(
+                    code=StatusCode.NO_RESULTS,
+                    message="No repositories matched the capability check",
+                ),
+            )
+        return SearchRepoResult.success(repositories=repositories, ids=ids)
 
     # =========================================================================
     # ITERATION & INFO
