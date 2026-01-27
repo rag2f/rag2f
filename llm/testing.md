@@ -1,0 +1,425 @@
+# Testing RAG2F
+
+Guide to testing applications built on RAG2F. Covers mocking strategies, fixtures, and patterns.
+
+## Test Dependencies
+
+```bash
+pip install rag2f[dev]
+# Includes: pytest, pytest-asyncio, pytest-cov, respx
+```
+
+## Quick Reference
+
+| Technique | Use Case | Speed |
+|-----------|----------|-------|
+| Mock `execute_hook` | Unit tests, isolated logic | ⚡ Fast |
+| Mock plugin folder | Integration tests | ⚡ Fast |
+| Session fixtures | Shared state tests | ⚡ Fast |
+| Full RAG2F.create() | E2E tests | 🐢 Slower |
+
+---
+
+## Mocking Strategies
+
+### 1. Mock execute_hook (Recommended for Unit Tests)
+
+Most tests only need to mock hook execution:
+
+```python
+from unittest.mock import MagicMock
+from rag2f.core.johnny5 import Johnny5
+
+def test_johnny5_success():
+    mock_rag2f = MagicMock()
+    
+    def mock_execute_hook(hook_name, *args, **kwargs):
+        match hook_name:
+            case "get_id_input_text":
+                return "test-id-123"
+            case "check_duplicated_input_text":
+                return False  # Not duplicate
+            case "handle_text_foreground":
+                return True   # Handled
+            case _:
+                return args[0] if args else None
+    
+    mock_rag2f.morpheus.execute_hook.side_effect = mock_execute_hook
+    
+    johnny5 = Johnny5(rag2f_instance=mock_rag2f)
+    result = johnny5.execute_handle_text_foreground("test input")
+    
+    assert result.is_ok()
+    assert result.track_id == "test-id-123"
+```
+
+### 2. Standalone Module Tests (No RAG2F)
+
+Test modules without any RAG2F instance:
+
+```python
+from rag2f.core.johnny5 import Johnny5
+from rag2f.core.dto.result_dto import StatusCode
+
+def test_johnny5_empty_input():
+    """Empty input returns error without needing RAG2F."""
+    johnny5 = Johnny5()  # No rag2f_instance
+    
+    result = johnny5.execute_handle_text_foreground("")
+    
+    assert result.is_error()
+    assert result.detail.code == StatusCode.EMPTY
+```
+
+### 3. Mock Plugin Directory
+
+For testing plugin discovery and hooks:
+
+```python
+# tests/mocks/plugins/mock_plugin/hooks.py
+from rag2f.core.morpheus.decorators import hook
+
+@hook("handle_text_foreground", priority=10)
+def mock_handler(done, track_id, text, *, rag2f):
+    return True
+
+# test file
+import pytest_asyncio
+from rag2f.core.rag2f import RAG2F
+
+@pytest_asyncio.fixture
+async def rag2f_with_mock_plugins():
+    return await RAG2F.create(plugins_folder="tests/mocks/plugins/")
+
+@pytest.mark.asyncio
+async def test_plugin_integration(rag2f_with_mock_plugins):
+    result = rag2f_with_mock_plugins.johnny5.execute_handle_text_foreground("test")
+    assert result.is_ok()
+```
+
+### 4. In-Memory Configuration
+
+```python
+@pytest_asyncio.fixture
+async def rag2f_with_config():
+    return await RAG2F.create(
+        config={
+            "rag2f": {"embedder_default": "mock"},
+            "plugins": {
+                "my_plugin": {"setting": "test_value"}
+            }
+        }
+    )
+```
+
+---
+
+## Pytest Fixtures
+
+### conftest.py Setup
+
+```python
+# tests/conftest.py
+import pytest
+import pytest_asyncio
+from rag2f.core.rag2f import RAG2F
+from rag2f.core.morpheus import Morpheus
+
+MOCK_PLUGINS = "tests/mocks/plugins/"
+
+@pytest_asyncio.fixture(scope="session")
+async def rag2f():
+    """Session-scoped RAG2F for shared state tests."""
+    return await RAG2F.create(plugins_folder=MOCK_PLUGINS)
+
+@pytest_asyncio.fixture(scope="session")
+async def morpheus(rag2f):
+    """Session-scoped Morpheus."""
+    return rag2f.morpheus
+
+@pytest.fixture(scope="function")
+def fresh_morpheus(rag2f):
+    """Fresh Morpheus per test (isolated hook state)."""
+    return Morpheus(rag2f, plugins_folder=MOCK_PLUGINS)
+```
+
+### Fixture Scopes
+
+| Scope | Lifecycle | Use Case |
+|-------|-----------|----------|
+| `function` | Per test | Isolated state needed |
+| `class` | Per test class | Related tests share setup |
+| `module` | Per file | File-level integration |
+| `session` | Entire run | Expensive setup (DB, API) |
+
+---
+
+## Testing Patterns
+
+### Testing Result Pattern
+
+```python
+from rag2f.core.dto.result_dto import StatusCode
+
+def test_result_success():
+    result = some_operation()
+    
+    assert result.is_ok()
+    assert result.status == "success"
+    # Access result fields...
+
+def test_result_error():
+    result = some_operation_that_fails()
+    
+    assert result.is_error()
+    assert result.detail is not None
+    assert result.detail.code == StatusCode.EMPTY
+    assert "empty" in result.detail.message.lower()
+```
+
+### Testing Hooks
+
+```python
+def test_hook_priority_order(morpheus):
+    """Hooks execute in descending priority order."""
+    # Given hooks with priorities 10, 5, 2
+    result = morpheus.execute_hook("test_hook", "start:", rag2f=None)
+    
+    # Each appends its priority
+    assert result == "start: p10 p5 p2"
+
+def test_hook_not_found(morpheus):
+    """Unknown hook returns initial value unchanged."""
+    result = morpheus.execute_hook("nonexistent_hook", "value", rag2f=None)
+    assert result == "value"
+```
+
+### Testing Configuration
+
+```python
+import os
+from unittest.mock import patch
+
+def test_env_overrides_json():
+    """ENV variables take precedence over JSON config."""
+    env = {"RAG2F__RAG2F__EMBEDDER_DEFAULT": "env_value"}
+    
+    with patch.dict(os.environ, env, clear=False):
+        # Create spock with JSON that has different value
+        spock = Spock(config_path="config_with_json_value.json")
+        spock.load()
+        
+        # ENV wins
+        assert spock.get_rag2f_config("embedder_default") == "env_value"
+```
+
+### Parameterized Tests
+
+```python
+import pytest
+
+@pytest.mark.parametrize("input_text,expected_code", [
+    ("", "empty"),
+    ("   ", "empty"),
+    (None, "empty"),
+])
+def test_empty_inputs(input_text, expected_code):
+    johnny5 = Johnny5()
+    result = johnny5.execute_handle_text_foreground(input_text)
+    
+    assert result.is_error()
+    assert result.detail.code == expected_code
+```
+
+---
+
+## Async Testing
+
+```python
+import pytest
+
+@pytest.mark.asyncio
+async def test_async_plugin_discovery():
+    rag2f = await RAG2F.create(plugins_folder="./plugins/")
+    
+    assert len(rag2f.morpheus.plugins) > 0
+
+@pytest.mark.asyncio
+async def test_multiple_instances_isolated():
+    """Each RAG2F instance has isolated state."""
+    r1 = await RAG2F.create(config={"rag2f": {"key": "value1"}})
+    r2 = await RAG2F.create(config={"rag2f": {"key": "value2"}})
+    
+    assert r1.spock.get_rag2f_config("key") == "value1"
+    assert r2.spock.get_rag2f_config("key") == "value2"
+```
+
+---
+
+## Mock HTTP with respx
+
+For plugins that make HTTP calls:
+
+```python
+import respx
+import httpx
+
+@respx.mock
+def test_embedder_api_call():
+    # Mock the API
+    respx.post("https://api.openai.com/v1/embeddings").mock(
+        return_value=httpx.Response(
+            200,
+            json={"data": [{"embedding": [0.1, 0.2, 0.3]}]}
+        )
+    )
+    
+    embedder = OpenAIEmbedder(api_key="test")
+    vector = embedder.getEmbedding("hello")
+    
+    assert vector == [0.1, 0.2, 0.3]
+```
+
+---
+
+## Mock Embedder
+
+```python
+class MockEmbedder:
+    """Deterministic mock embedder for testing."""
+    
+    @property
+    def size(self) -> int:
+        return 128
+    
+    def getEmbedding(self, text: str, *, normalize: bool = False) -> list[float]:
+        import hashlib
+        h = hashlib.sha256(text.encode()).digest()
+        vector = [b / 255.0 for b in h[:self.size]]
+        return vector
+
+# Usage
+def test_with_mock_embedder():
+    optimus = OptimusPrime()
+    optimus.register("mock", MockEmbedder())
+    
+    embedder = optimus.get("mock")
+    v1 = embedder.getEmbedding("hello")
+    v2 = embedder.getEmbedding("hello")
+    
+    assert v1 == v2  # Deterministic
+```
+
+---
+
+## Mock Repository
+
+```python
+from rag2f.core.xfiles.capabilities import Capabilities
+
+class MockRepository:
+    def __init__(self):
+        self.data = {}
+    
+    def capabilities(self) -> Capabilities:
+        return Capabilities(filter_ops={"eq", "in"})
+    
+    def native(self, handle_name: str = "default"):
+        return self.data
+    
+    def insert(self, id: str, data: dict):
+        self.data[id] = data
+    
+    def find(self, id: str):
+        return self.data.get(id)
+
+# Usage
+def test_xfiles_with_mock_repo():
+    xfiles = XFiles()
+    repo = MockRepository()
+    
+    result = xfiles.execute_register("test", repo)
+    assert result.is_ok()
+    
+    repo.insert("doc1", {"text": "hello"})
+    
+    get_result = xfiles.execute_get("test")
+    assert get_result.repository.find("doc1") == {"text": "hello"}
+```
+
+---
+
+## Testing Plugin Hooks
+
+### Create Test Plugin Structure
+
+```
+tests/mocks/plugins/mock_plugin/
+├── __init__.py
+├── plugin.toml
+└── hooks.py
+```
+
+```toml
+# plugin.toml
+[plugin]
+id = "mock_plugin"
+name = "Mock Plugin"
+version = "1.0.0"
+```
+
+```python
+# hooks.py
+from rag2f.core.morpheus.decorators import hook
+
+@hook("handle_text_foreground", priority=100)
+def always_handle(done, track_id, text, *, rag2f):
+    return True  # Always marks as handled
+```
+
+### Test Hook Integration
+
+```python
+@pytest.mark.asyncio
+async def test_mock_plugin_hooks():
+    rag2f = await RAG2F.create(plugins_folder="tests/mocks/plugins/")
+    
+    assert rag2f.morpheus.plugin_exists("mock_plugin")
+    
+    result = rag2f.johnny5.execute_handle_text_foreground("test")
+    assert result.is_ok()  # Mock hook handles it
+```
+
+---
+
+## Running Tests
+
+```bash
+# All tests
+pytest
+
+# With coverage
+pytest --cov=src/rag2f --cov-report=html
+
+# Only failed tests
+pytest -lf
+
+# Specific test file
+pytest tests/core/test_johnny5.py
+
+# Specific test by name
+pytest -k "test_empty"
+
+# Verbose output
+pytest -vv -rA
+```
+
+## pytest.ini Configuration
+
+```ini
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-s -vv -rA --color=yes --maxfail=3"
+asyncio_mode = "auto"
+```

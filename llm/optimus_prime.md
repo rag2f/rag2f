@@ -1,0 +1,276 @@
+# OptimusPrime — Embedder Registry
+
+> "Freedom is the right of all sentient beings." — Optimus Prime, Transformers
+
+Manages the registry of embedding providers for vector operations.
+
+## Core Concept
+
+OptimusPrime is a registry, not an embedder. Embedders are contributed by plugins via hooks.
+
+```python
+# Get default embedder
+embedder = rag2f.optimus_prime.get_default()
+vector = embedder.getEmbedding("Hello world")
+```
+
+## Embedder Protocol
+
+Embedders must implement:
+
+```python
+from typing import Protocol, runtime_checkable
+
+Vector = list[float]
+
+@runtime_checkable
+class Embedder(Protocol):
+    @property
+    def size(self) -> int:
+        """Vector dimension (e.g., 1536 for text-embedding-ada-002)."""
+        ...
+
+    def getEmbedding(self, text: str, *, normalize: bool = False) -> Vector:
+        """Return embedding vector for text."""
+        ...
+```
+
+## API Reference
+
+```python
+class OptimusPrime:
+    def register(self, key: str, embedder: Embedder) -> None:
+        """Register an embedder.
+        
+        Raises:
+            ValueError: Invalid key or key already exists
+            TypeError: Embedder doesn't implement protocol
+        """
+    
+    def get(self, key: str) -> Embedder | None:
+        """Get embedder by key, or None if not found."""
+    
+    def get_default(self) -> Embedder:
+        """Get default embedder.
+        
+        Resolution:
+        1. If single embedder registered → return it
+        2. If multiple → use rag2f.embedder_default from config
+        
+        Raises:
+            LookupError: No embedders or default not found
+        """
+    
+    def has(self, key: str) -> bool:
+        """Check if embedder exists."""
+    
+    def list_keys(self) -> list[str]:
+        """List all registered embedder keys."""
+    
+    def unregister(self, key: str) -> bool:
+        """Remove embedder. Returns True if removed."""
+    
+    @property
+    def registry(self) -> dict[str, Embedder]:
+        """Get copy of registry."""
+```
+
+## Usage Examples
+
+### Basic Usage
+
+```python
+# Get default embedder
+embedder = rag2f.optimus_prime.get_default()
+vector = embedder.getEmbedding("Hello world")
+print(f"Vector dimension: {embedder.size}")  # e.g., 1536
+
+# Get specific embedder
+azure = rag2f.optimus_prime.get("azure_openai")
+if azure:
+    vector = azure.getEmbedding("test", normalize=True)
+```
+
+### Check Available Embedders
+
+```python
+keys = rag2f.optimus_prime.list_keys()
+print(f"Available embedders: {keys}")
+
+if rag2f.optimus_prime.has("local_embedder"):
+    local = rag2f.optimus_prime.get("local_embedder")
+```
+
+## Implementing an Embedder
+
+### Minimal Example
+
+```python
+class MyEmbedder:
+    @property
+    def size(self) -> int:
+        return 768
+    
+    def getEmbedding(self, text: str, *, normalize: bool = False) -> list[float]:
+        vector = self._compute_embedding(text)
+        if normalize:
+            vector = self._normalize(vector)
+        return vector
+```
+
+### Plugin Bootstrap Hook
+
+```python
+from rag2f.core.morpheus.decorators import hook
+
+@hook("rag2f_bootstrap_embedders", priority=10)
+def register_my_embedder(*, rag2f):
+    """Bootstrap hook to register embedder."""
+    config = rag2f.spock.get_plugin_config("my_embedder")
+    
+    embedder = MyEmbedder(
+        api_key=config.get("api_key"),
+        model=config.get("model", "default-model")
+    )
+    
+    rag2f.optimus_prime.register("my_embedder", embedder)
+```
+
+### Azure OpenAI Example
+
+```python
+from openai import AzureOpenAI
+
+class AzureOpenAIEmbedder:
+    def __init__(self, api_key: str, endpoint: str, deployment: str):
+        self.client = AzureOpenAI(
+            api_key=api_key,
+            azure_endpoint=endpoint,
+            api_version="2023-05-15"
+        )
+        self.deployment = deployment
+        self._size = 1536  # text-embedding-ada-002
+    
+    @property
+    def size(self) -> int:
+        return self._size
+    
+    def getEmbedding(self, text: str, *, normalize: bool = False) -> list[float]:
+        response = self.client.embeddings.create(
+            input=text,
+            model=self.deployment
+        )
+        return response.data[0].embedding
+```
+
+## Configuration for Default Embedder
+
+When multiple embedders are registered, set the default:
+
+```json
+{
+  "rag2f": {
+    "embedder_default": "azure_openai"
+  }
+}
+```
+
+Or via ENV:
+
+```bash
+export RAG2F__RAG2F__EMBEDDER_DEFAULT=azure_openai
+```
+
+## Error Handling
+
+```python
+from rag2f.core.optimus_prime import OptimusPrime
+
+# Registration errors
+try:
+    optimus.register("", embedder)  # ValueError: Invalid key
+    optimus.register("key", embedder)
+    optimus.register("key", other)  # ValueError: Already exists
+    optimus.register("key", non_embedder)  # TypeError: Protocol violation
+except (ValueError, TypeError) as e:
+    print(f"Registration failed: {e}")
+
+# Lookup errors
+try:
+    embedder = optimus.get_default()
+except LookupError as e:
+    print(f"No default embedder: {e}")
+```
+
+---
+
+## Optional: Testing OptimusPrime
+
+See [testing.md](./testing.md) for complete testing guide.
+
+### Mock Embedder
+
+```python
+class MockEmbedder:
+    @property
+    def size(self) -> int:
+        return 128
+    
+    def getEmbedding(self, text: str, *, normalize: bool = False) -> list[float]:
+        # Deterministic mock: hash-based
+        import hashlib
+        h = hashlib.md5(text.encode()).hexdigest()
+        return [int(h[i:i+2], 16) / 255.0 for i in range(0, 32, 2)][:self.size]
+```
+
+### Test Registration
+
+```python
+from rag2f.core.optimus_prime import OptimusPrime
+
+def test_register_embedder():
+    optimus = OptimusPrime()
+    embedder = MockEmbedder()
+    
+    optimus.register("test", embedder)
+    
+    assert optimus.has("test")
+    assert optimus.get("test") is embedder
+    assert "test" in optimus.list_keys()
+
+def test_get_default_single():
+    optimus = OptimusPrime()
+    embedder = MockEmbedder()
+    optimus.register("only_one", embedder)
+    
+    # Single embedder becomes default
+    assert optimus.get_default() is embedder
+
+def test_protocol_enforcement():
+    optimus = OptimusPrime()
+    
+    class NotAnEmbedder:
+        pass
+    
+    with pytest.raises(TypeError):
+        optimus.register("bad", NotAnEmbedder())
+```
+
+### With RAG2F Fixture
+
+```python
+@pytest_asyncio.fixture
+async def rag2f_with_embedder():
+    rag2f = await RAG2F.create(
+        config={"rag2f": {"embedder_default": "mock"}}
+    )
+    rag2f.optimus_prime.register("mock", MockEmbedder())
+    return rag2f
+
+def test_embedder_integration(rag2f_with_embedder):
+    embedder = rag2f_with_embedder.optimus_prime.get_default()
+    vector = embedder.getEmbedding("test")
+    
+    assert len(vector) == embedder.size
+    assert all(isinstance(v, float) for v in vector)
+```

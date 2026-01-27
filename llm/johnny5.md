@@ -1,0 +1,146 @@
+# Johnny5 — Input Manager
+
+> "Input. More input!" — Johnny 5, Short Circuit
+
+Handles user input processing through a hook-based pipeline.
+
+## Key Method
+
+```python
+result = johnny5.execute_handle_text_foreground(text: str) -> InsertResult
+```
+
+## Result Type
+
+```python
+class InsertResult(BaseResult):
+    track_id: str  # Tracking ID (empty if error)
+```
+
+## Processing Pipeline
+
+Hooks are invoked in this order:
+
+1. `get_id_input_text` — generate or retrieve ID for input
+2. `check_duplicated_input_text` — check if input is duplicate  
+3. `handle_text_foreground` — process the text (store, embed, index)
+
+### Hook Signatures
+
+```python
+# 1. Generate or retrieve ID for input
+@hook("get_id_input_text", priority=10)
+def my_id_hook(track_id, text, *, rag2f):
+    return "custom-id-123"  # or None to use default UUID
+
+# 2. Check if input is duplicate
+@hook("check_duplicated_input_text", priority=10)  
+def my_dup_check(is_duplicate, track_id, text, *, rag2f):
+    return True  # or False
+
+# 3. Handle the actual processing
+@hook("handle_text_foreground", priority=10)
+def my_handler(done, track_id, text, *, rag2f):
+    # Store, embed, index...
+    return True  # True = handled
+```
+
+## Status Codes
+
+| Code | Meaning |
+|------|---------|
+| `StatusCode.EMPTY` | Input is empty or whitespace-only |
+| `StatusCode.DUPLICATE` | Input already processed |
+| `StatusCode.NOT_HANDLED` | No hook handled the input |
+
+## Usage Examples
+
+### Basic Usage
+
+```python
+result = rag2f.johnny5.execute_handle_text_foreground("Hello world")
+
+if result.is_ok():
+    print(f"Processed: {result.track_id}")
+else:
+    match result.detail.code:
+        case "empty":
+            print("Input was empty")
+        case "duplicate":
+            print(f"Already exists: {result.detail.context['id']}")
+        case "not_handled":
+            print("No plugin handled this input")
+```
+
+### Without RAG2F Instance
+
+```python
+from rag2f.core.johnny5 import Johnny5
+
+# Standalone (no hooks)
+johnny5 = Johnny5()
+result = johnny5.execute_handle_text_foreground("test")
+# Always returns NOT_HANDLED (no plugins to process)
+```
+
+## Plugin Implementation Example
+
+```python
+# plugins/my_ingest_plugin/hooks.py
+from rag2f.core.morpheus.decorators import hook
+
+@hook("handle_text_foreground", priority=5)
+def store_in_vector_db(done, track_id, text, *, rag2f):
+    if done:
+        return done  # Already handled by higher-priority hook
+    
+    # Get embedder
+    embedder = rag2f.optimus_prime.get_default()
+    vector = embedder.getEmbedding(text)
+    
+    # Store in repository
+    repo_result = rag2f.xfiles.execute_get("vectors")
+    if repo_result.repository:
+        repo_result.repository.insert(track_id, vector, {"text": text})
+    
+    return True  # Mark as handled
+```
+
+---
+
+## Optional: Testing Johnny5
+
+See [testing.md](./testing.md) for complete testing guide.
+
+```python
+from unittest.mock import MagicMock
+from rag2f.core.johnny5 import Johnny5
+from rag2f.core.dto.result_dto import StatusCode
+
+def test_johnny5_success():
+    mock_rag2f = MagicMock()
+    
+    def mock_hook(hook_name, *args, **kw):
+        if hook_name == "get_id_input_text":
+            return "test-id"
+        if hook_name == "check_duplicated_input_text":
+            return False
+        if hook_name == "handle_text_foreground":
+            return True
+        return None
+    
+    mock_rag2f.morpheus.execute_hook.side_effect = mock_hook
+    
+    johnny5 = Johnny5(rag2f_instance=mock_rag2f)
+    result = johnny5.execute_handle_text_foreground("hello")
+    
+    assert result.is_ok()
+    assert result.track_id == "test-id"
+
+def test_johnny5_empty():
+    johnny5 = Johnny5()
+    result = johnny5.execute_handle_text_foreground("")
+    
+    assert result.is_error()
+    assert result.detail.code == StatusCode.EMPTY
+```

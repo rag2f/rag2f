@@ -1,0 +1,401 @@
+# Creating Plugins for RAG2F
+
+Guide to building plugins that extend RAG2F functionality.
+
+## Plugin Architecture
+
+RAG2F Core contains these modules: Johnny5, IndianaJones, OptimusPrime, XFiles. All modules connect to Morpheus (the hook system). Plugins extend the system by registering hooks with Morpheus.
+
+**Plugin types:**
+- **Embedder plugins** — register embedders via OptimusPrime hooks
+- **Repository plugins** — register vector DBs, SQL stores via XFiles hooks  
+- **Custom plugins** — extend any processing pipeline via hooks
+
+## Minimal Plugin Structure
+
+```
+my_plugin/
+├── __init__.py          # Required (can be empty)
+├── plugin.toml          # Plugin metadata
+└── hooks.py             # Hook implementations
+```
+
+### plugin.toml
+
+```toml
+[plugin]
+id = "my_plugin"           # Unique identifier (required)
+name = "My Plugin"         # Display name
+version = "1.0.0"
+description = "What this plugin does"
+```
+
+### Alternative: pyproject.toml
+
+```toml
+[tool.rag2f.plugin]
+id = "my_plugin"
+name = "My Plugin"
+version = "1.0.0"
+```
+
+### hooks.py
+
+```python
+from rag2f.core.morpheus.decorators import hook
+
+@hook("handle_text_foreground", priority=10)
+def my_handler(done, track_id, text, *, rag2f):
+    """Process incoming text."""
+    if done:
+        return done  # Already handled by higher-priority hook
+    
+    # Your processing logic
+    process_text(track_id, text)
+    
+    return True  # Mark as handled
+```
+
+---
+
+## Hook Types
+
+### 1. Bootstrap Hooks (No Piped Value)
+
+Called once during initialization. No return value piping.
+
+```python
+@hook("rag2f_bootstrap_embedders", priority=10)
+def register_my_embedder(*, rag2f):
+    """Register embedder during bootstrap."""
+    config = rag2f.spock.get_plugin_config("my_plugin")
+    embedder = MyEmbedder(api_key=config.get("api_key"))
+    rag2f.optimus_prime.register("my_embedder", embedder)
+```
+
+### 2. Processing Hooks (Piped Value)
+
+First argument is piped through all hooks in priority order.
+
+```python
+@hook("handle_text_foreground", priority=5)
+def process_text(done: bool, track_id: str, text: str, *, rag2f):
+    """Process text if not already handled."""
+    if done:
+        return done
+    
+    # Store in vector DB
+    embedder = rag2f.optimus_prime.get_default()
+    vector = embedder.getEmbedding(text)
+    
+    repo_result = rag2f.xfiles.execute_get("vectors")
+    if repo_result.repository:
+        repo_result.repository.insert(track_id, vector, {"text": text})
+    
+    return True
+```
+
+### 3. Transform Hooks (Modify and Return)
+
+Transform data flowing through the pipeline.
+
+```python
+@hook("indiana_jones_retrieve", priority=5)
+def enrich_results(result, query, k, *, rag2f):
+    """Add extra metadata to retrieved items."""
+    for item in result.items:
+        item.extra["enriched_at"] = datetime.now().isoformat()
+    return result
+```
+
+---
+
+## Available Hooks
+
+| Hook Name | Module | Purpose | Signature |
+|-----------|--------|---------|-----------|
+| `rag2f_bootstrap_embedders` | OptimusPrime | Register embedders | `(*, rag2f)` |
+| `get_id_input_text` | Johnny5 | Generate input ID | `(track_id, text, *, rag2f)` |
+| `check_duplicated_input_text` | Johnny5 | Check duplicate | `(is_dup, track_id, text, *, rag2f)` |
+| `handle_text_foreground` | Johnny5 | Process input | `(done, track_id, text, *, rag2f)` |
+| `indiana_jones_retrieve` | IndianaJones | Retrieval | `(result, query, k, *, rag2f)` |
+| `indiana_jones_search` | IndianaJones | Search | `(result, query, k, mode, kwargs, *, rag2f)` |
+
+---
+
+## Complete Plugin Example: Vector Store
+
+```
+rag2f_qdrant_plugin/
+├── __init__.py
+├── plugin.toml
+├── hooks.py
+└── requirements.txt
+```
+
+### plugin.toml
+
+```toml
+[plugin]
+id = "rag2f_qdrant"
+name = "Qdrant Vector Store"
+version = "1.0.0"
+```
+
+### requirements.txt
+
+```
+qdrant-client>=1.7.0
+```
+
+### hooks.py
+
+```python
+"""Qdrant vector store plugin for RAG2F."""
+
+from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, VectorParams, PointStruct
+
+from rag2f.core.morpheus.decorators import hook
+from rag2f.core.xfiles.capabilities import Capabilities, VectorSearchCapability
+
+
+class QdrantRepository:
+    """Qdrant-backed vector repository."""
+    
+    def __init__(self, client: QdrantClient, collection: str, vector_size: int):
+        self._client = client
+        self._collection = collection
+        self._vector_size = vector_size
+    
+    def capabilities(self) -> Capabilities:
+        return Capabilities(
+            vector_search=VectorSearchCapability(
+                supported=True,
+                dimensions=[self._vector_size]
+            ),
+            native_handles=["client"]
+        )
+    
+    def native(self, handle_name: str = "default"):
+        return self._client
+    
+    def vector_search(self, vector: list[float], k: int = 10) -> list[dict]:
+        results = self._client.search(
+            collection_name=self._collection,
+            query_vector=vector,
+            limit=k
+        )
+        return [{"id": r.id, "score": r.score, **r.payload} for r in results]
+    
+    def insert(self, id: str, vector: list[float], payload: dict):
+        self._client.upsert(
+            collection_name=self._collection,
+            points=[PointStruct(id=id, vector=vector, payload=payload)]
+        )
+
+
+@hook("rag2f_bootstrap_embedders", priority=5)
+def setup_qdrant(*, rag2f):
+    """Register Qdrant repository during bootstrap."""
+    config = rag2f.spock.get_plugin_config("rag2f_qdrant")
+    
+    if not config:
+        return  # Plugin not configured
+    
+    client = QdrantClient(
+        host=config.get("host", "localhost"),
+        port=config.get("port", 6333)
+    )
+    
+    collection = config.get("collection", "documents")
+    vector_size = config.get("vector_size", 1536)
+    
+    # Ensure collection exists
+    try:
+        client.get_collection(collection)
+    except Exception:
+        client.create_collection(
+            collection_name=collection,
+            vectors_config=VectorParams(
+                size=vector_size,
+                distance=Distance.COSINE
+            )
+        )
+    
+    repo = QdrantRepository(client, collection, vector_size)
+    rag2f.xfiles.execute_register(
+        "qdrant",
+        repo,
+        meta={"type": "vector", "backend": "qdrant"}
+    )
+
+
+@hook("handle_text_foreground", priority=5)
+def store_in_qdrant(done, track_id, text, *, rag2f):
+    """Store text embeddings in Qdrant."""
+    if done:
+        return done
+    
+    # Get Qdrant repo
+    result = rag2f.xfiles.execute_get("qdrant")
+    if not result.repository:
+        return False
+    
+    # Get embedder and embed text
+    try:
+        embedder = rag2f.optimus_prime.get_default()
+        vector = embedder.getEmbedding(text)
+    except LookupError:
+        return False  # No embedder available
+    
+    # Store
+    result.repository.insert(track_id, vector, {"text": text})
+    return True
+
+
+@hook("indiana_jones_retrieve", priority=10)
+def retrieve_from_qdrant(result, query, k, *, rag2f):
+    """Retrieve from Qdrant."""
+    from rag2f.core.dto.indiana_jones_dto import RetrieveResult, RetrievedItem
+    
+    repo_result = rag2f.xfiles.execute_get("qdrant")
+    if not repo_result.repository:
+        return result
+    
+    try:
+        embedder = rag2f.optimus_prime.get_default()
+        query_vector = embedder.getEmbedding(query)
+    except LookupError:
+        return result
+    
+    results = repo_result.repository.vector_search(query_vector, k)
+    
+    items = [
+        RetrievedItem(
+            id=r["id"],
+            text=r.get("text", ""),
+            score=r.get("score"),
+            metadata={"source": "qdrant"}
+        )
+        for r in results
+    ]
+    
+    return RetrieveResult.success(query=query, items=items)
+```
+
+---
+
+## Configuration for Your Plugin
+
+### config.json
+
+```json
+{
+  "plugins": {
+    "rag2f_qdrant": {
+      "host": "localhost",
+      "port": 6333,
+      "collection": "documents",
+      "vector_size": 1536
+    }
+  }
+}
+```
+
+### Accessing Config in Hooks
+
+```python
+@hook("rag2f_bootstrap_embedders", priority=5)
+def setup(*, rag2f):
+    # Get entire plugin config
+    config = rag2f.spock.get_plugin_config("my_plugin")
+    
+    # Get specific key
+    api_key = rag2f.spock.get_plugin_config("my_plugin", "api_key")
+    
+    # Get nested key
+    timeout = rag2f.spock.get_plugin_config("my_plugin", "http", "timeout")
+```
+
+---
+
+## Hook Priority Guidelines
+
+| Priority | Use Case |
+|----------|----------|
+| 100+ | Override everything (testing) |
+| 50-99 | Primary implementation |
+| 10-49 | Standard plugins |
+| 1-9 | Fallback/default behavior |
+
+Higher priority executes **first**.
+
+---
+
+## Optional: Testing Your Plugin
+
+See [testing.md](./testing.md) for complete testing guide.
+
+```python
+import pytest
+import pytest_asyncio
+from rag2f.core.rag2f import RAG2F
+
+@pytest_asyncio.fixture
+async def rag2f_with_plugin():
+    return await RAG2F.create(
+        plugins_folder="./my_plugin/",
+        config={
+            "plugins": {
+                "my_plugin": {"setting": "value"}
+            }
+        }
+    )
+
+@pytest.mark.asyncio
+async def test_plugin_hooks(rag2f_with_plugin):
+    assert rag2f_with_plugin.morpheus.plugin_exists("my_plugin")
+    
+    result = rag2f_with_plugin.johnny5.execute_handle_text_foreground("test")
+    assert result.is_ok()
+```
+
+---
+
+## Publishing Your Plugin
+
+### Via PyPI (Recommended)
+
+1. Create `pyproject.toml` with entry point:
+
+```toml
+[project]
+name = "rag2f-my-plugin"
+version = "1.0.0"
+dependencies = ["rag2f>=0.1.0"]
+
+[project.entry-points."rag2f.plugins"]
+my_plugin = "rag2f_my_plugin:get_plugin_path"
+```
+
+2. Add path function to `__init__.py`:
+
+```python
+from pathlib import Path
+
+def get_plugin_path() -> str:
+    return str(Path(__file__).parent)
+```
+
+3. Publish:
+
+```bash
+pip install build twine
+python -m build
+twine upload dist/*
+```
+
+### Local Development
+
+Just place in `plugins/` folder — RAG2F discovers it automatically.

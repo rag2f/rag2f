@@ -1,0 +1,332 @@
+# XFiles — Repository Registry
+
+> "The truth is out there." — The X-Files
+
+Manages a registry of heterogeneous repositories (SQL, vector DBs, document stores, graphs).
+
+## Core Concept
+
+XFiles is a registry that holds repository instances. Repositories implement protocols declaring their capabilities.
+
+```python
+# Register
+result = rag2f.xfiles.execute_register("users_db", postgres_repo, meta={"type": "postgresql"})
+
+# Get
+result = rag2f.xfiles.execute_get("users_db")
+repo = result.repository
+
+# Search
+result = rag2f.xfiles.execute_search_by_meta(type="postgresql")
+```
+
+## Repository Protocols
+
+```python
+from rag2f.core.xfiles.repository import BaseRepository, QueryableRepository, VectorSearchRepository
+
+class BaseRepository(Protocol):
+    """Minimal contract: CRUD + capabilities + native access."""
+    def capabilities(self) -> Capabilities: ...
+    def native(self, handle_name: str = "default") -> Any: ...
+
+class QueryableRepository(BaseRepository, Protocol):
+    """Adds QuerySpec-based find()."""
+    def find(self, query: QuerySpec) -> list[dict]: ...
+
+class VectorSearchRepository(BaseRepository, Protocol):
+    """Adds vector similarity search."""
+    def vector_search(self, vector: list[float], k: int) -> list[dict]: ...
+```
+
+## API Reference
+
+### Registration
+
+```python
+result = xfiles.execute_register(
+    id: str,                    # Unique identifier
+    repository: BaseRepository, # Repository instance
+    meta: dict | None = None    # Metadata for searching
+) -> RegisterResult
+```
+
+Result fields:
+- `id: str` — Repository ID
+- `created: bool` — True if new, False if skipped (duplicate)
+- `detail` — Status info on error or duplicate
+
+Status codes:
+- `INVALID` — Invalid ID or repository type
+- `ALREADY_EXISTS` — Different instance with same ID
+- `DUPLICATE` — Same instance (skipped)
+
+### Lookup
+
+```python
+# Get by ID
+result = xfiles.execute_get(id: str) -> GetResult
+# result.repository — The repository or None
+# result.detail.code == "not_found" if missing
+
+# Check existence
+exists = xfiles.has(id: str) -> bool
+
+# Get typed (with protocol check)
+repo = xfiles.get_typed(id: str, protocol: type[T]) -> T | None
+
+# Get metadata
+meta = xfiles.get_meta(id: str) -> dict | None
+
+# Get capabilities
+caps = xfiles.get_capabilities(id: str) -> Capabilities | None
+```
+
+### Search
+
+```python
+# By predicate
+result = xfiles.execute_search(
+    predicate: Callable[[dict], bool]
+) -> SearchRepoResult
+# result.repositories — List of matching repos
+# result.ids — List of matching IDs
+
+# By metadata key-value
+result = xfiles.execute_search_by_meta(**criteria) -> SearchRepoResult
+# Example: execute_search_by_meta(type="mongodb", domain="users")
+
+# By capability
+result = xfiles.execute_search_by_capability(
+    capability_check: Callable[[Capabilities], bool]
+) -> SearchRepoResult
+```
+
+### Other
+
+```python
+# Unregister
+removed = xfiles.unregister(id: str) -> bool
+
+# List all IDs
+ids = xfiles.list_ids() -> list[str]
+
+# Iterate
+for id, repo, meta in xfiles.iter_all():
+    ...
+```
+
+## Usage Examples
+
+### Register and Get
+
+```python
+from rag2f.core.dto.result_dto import StatusCode
+
+# Register
+result = rag2f.xfiles.execute_register(
+    "vectors",
+    qdrant_repo,
+    meta={"type": "vector", "backend": "qdrant", "collection": "docs"}
+)
+
+if result.is_ok():
+    if result.created:
+        print("Registered new repository")
+    else:
+        print("Repository already existed (skipped)")
+else:
+    print(f"Error: {result.detail.message}")
+
+# Get
+result = rag2f.xfiles.execute_get("vectors")
+if result.is_ok() and result.repository:
+    repo = result.repository
+    # Use repo...
+elif result.detail and result.detail.code == StatusCode.NOT_FOUND:
+    print("Repository not found")
+```
+
+### Search by Metadata
+
+```python
+# Find all MongoDB repositories
+result = rag2f.xfiles.execute_search_by_meta(type="mongodb")
+
+for repo in result.repositories:
+    # Use repo...
+
+# Find with multiple criteria
+result = rag2f.xfiles.execute_search_by_meta(
+    type="postgresql",
+    domain="users"
+)
+```
+
+### Search by Capability
+
+```python
+# Find all vector-searchable repositories
+result = rag2f.xfiles.execute_search_by_capability(
+    lambda caps: caps.vector_search.supported
+)
+
+# Find repositories supporting specific filter operators
+result = rag2f.xfiles.execute_search_by_capability(
+    lambda caps: "eq" in caps.filter_ops and "in" in caps.filter_ops
+)
+```
+
+### Typed Lookup
+
+```python
+from rag2f.core.xfiles.repository import VectorSearchRepository
+
+# Get only if it's a vector search repo
+repo = rag2f.xfiles.get_typed("vectors", VectorSearchRepository)
+if repo:
+    results = repo.vector_search(embedding_vector, k=10)
+```
+
+### Native Escape Hatch
+
+```python
+# Access backend-specific client
+result = rag2f.xfiles.execute_get("postgres_db")
+if result.repository:
+    # Get native connection
+    conn = result.repository.native("connection")
+    conn.execute("EXPLAIN ANALYZE SELECT ...")
+```
+
+## Capabilities
+
+Repositories declare what they support:
+
+```python
+from rag2f.core.xfiles.capabilities import Capabilities
+
+class MyRepository:
+    def capabilities(self) -> Capabilities:
+        return Capabilities(
+            filter_ops={"eq", "ne", "gt", "lt", "in"},
+            pagination=True,
+            vector_search=VectorSearchCapability(
+                supported=True,
+                dimensions=[768, 1536]
+            ),
+            native_handles=["connection", "cursor"]
+        )
+```
+
+## Implementing a Repository
+
+### Minimal Repository
+
+```python
+from rag2f.core.xfiles.repository import BaseRepository
+from rag2f.core.xfiles.capabilities import Capabilities
+
+class MyRepository(BaseRepository):
+    def capabilities(self) -> Capabilities:
+        return Capabilities()
+    
+    def native(self, handle_name: str = "default"):
+        if handle_name == "client":
+            return self._client
+        raise ValueError(f"Unknown handle: {handle_name}")
+```
+
+### Vector Search Repository
+
+```python
+class MyVectorRepo:
+    def __init__(self, client):
+        self._client = client
+    
+    def capabilities(self) -> Capabilities:
+        return Capabilities(
+            vector_search=VectorSearchCapability(
+                supported=True,
+                dimensions=[768, 1536]
+            )
+        )
+    
+    def vector_search(self, vector: list[float], k: int = 10) -> list[dict]:
+        return self._client.search(vector, limit=k)
+    
+    def native(self, handle_name: str = "default"):
+        return self._client
+```
+
+---
+
+## Optional: Testing XFiles
+
+See [testing.md](./testing.md) for complete testing guide.
+
+### Mock Repository
+
+```python
+from rag2f.core.xfiles.capabilities import Capabilities
+
+class MockRepository:
+    def capabilities(self) -> Capabilities:
+        return Capabilities(filter_ops={"eq"})
+    
+    def native(self, handle_name: str = "default"):
+        return {"mock": True}
+```
+
+### Test Registration
+
+```python
+from rag2f.core.xfiles import XFiles
+from rag2f.core.dto.result_dto import StatusCode
+
+def test_register_repository():
+    xfiles = XFiles()
+    repo = MockRepository()
+    
+    result = xfiles.execute_register("test", repo, meta={"type": "mock"})
+    
+    assert result.is_ok()
+    assert result.created
+    assert xfiles.has("test")
+
+def test_duplicate_registration():
+    xfiles = XFiles()
+    repo = MockRepository()
+    
+    xfiles.execute_register("test", repo)
+    result = xfiles.execute_register("test", repo)  # Same instance
+    
+    assert result.is_ok()
+    assert not result.created  # Skipped
+    assert result.detail.code == StatusCode.DUPLICATE
+
+def test_override_prevented():
+    xfiles = XFiles()
+    
+    xfiles.execute_register("test", MockRepository())
+    result = xfiles.execute_register("test", MockRepository())  # Different instance
+    
+    assert result.is_error()
+    assert result.detail.code == StatusCode.ALREADY_EXISTS
+```
+
+### Test Search
+
+```python
+def test_search_by_meta():
+    xfiles = XFiles()
+    xfiles.execute_register("pg1", MockRepository(), meta={"type": "postgresql"})
+    xfiles.execute_register("pg2", MockRepository(), meta={"type": "postgresql"})
+    xfiles.execute_register("mongo", MockRepository(), meta={"type": "mongodb"})
+    
+    result = xfiles.execute_search_by_meta(type="postgresql")
+    
+    assert result.is_ok()
+    assert len(result.repositories) == 2
+    assert set(result.ids) == {"pg1", "pg2"}
+```

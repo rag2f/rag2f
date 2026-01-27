@@ -1,0 +1,255 @@
+# Spock — Configuration Manager
+
+> "Logic is the beginning of wisdom, not the end." — Spock, Star Trek
+
+Manages configuration from JSON files and environment variables.
+
+## Priority Order
+
+```
+ENV variables > JSON file > provided config dict > defaults
+```
+
+## Configuration Structure
+
+```json
+{
+  "rag2f": {
+    "embedder_default": "azure_openai",
+    "setting_key": "value"
+  },
+  "plugins": {
+    "plugin_id": {
+      "api_key": "...",
+      "endpoint": "...",
+      "nested": {
+        "deep_key": "value"
+      }
+    }
+  }
+}
+```
+
+## Initialization
+
+```python
+from rag2f.core.rag2f import RAG2F
+
+# Via RAG2F.create()
+rag2f = await RAG2F.create(
+    config_path="config.json",      # Load from file
+    config={"rag2f": {...}}         # Or provide dict directly
+)
+
+# Access Spock
+spock = rag2f.spock  # or rag2f.config_manager
+```
+
+## Environment Variables
+
+Pattern: `RAG2F__<SECTION>__<KEY>__<SUBKEY>`
+
+```bash
+# Core settings
+export RAG2F__RAG2F__EMBEDDER_DEFAULT=azure_openai
+
+# Plugin settings (secrets should use ENV, not JSON)
+export RAG2F__PLUGINS__MY_PLUGIN__API_KEY=sk-xxx
+export RAG2F__PLUGINS__MY_PLUGIN__ENDPOINT=https://api.example.com
+
+# Nested keys
+export RAG2F__PLUGINS__MY_PLUGIN__NESTED__DEEP_KEY=value
+```
+
+## Accessing Configuration
+
+### Core Config
+
+```python
+# Get single value
+value = spock.get_rag2f_config("embedder_default")
+# Returns: "azure_openai" or None
+
+# Get with default
+value = spock.get_rag2f_config("missing_key", default="fallback")
+# Returns: "fallback"
+```
+
+### Plugin Config
+
+```python
+# Get entire plugin config
+config = spock.get_plugin_config("my_plugin")
+# Returns: {"api_key": "...", "endpoint": "...", "nested": {...}}
+
+# Get specific key
+api_key = spock.get_plugin_config("my_plugin", "api_key")
+# Returns: "sk-xxx"
+
+# Get nested key
+deep = spock.get_plugin_config("my_plugin", "nested", "deep_key")
+# Returns: "value"
+
+# With default
+value = spock.get_plugin_config("my_plugin", "missing", default="fallback")
+# Returns: "fallback"
+```
+
+## Configuration Examples
+
+### config.example.json
+
+```json
+{
+  "rag2f": {
+    "embedder_default": "azure_openai"
+  },
+  "plugins": {
+    "azure_openai_embedder": {
+      "endpoint": "https://your-resource.openai.azure.com/",
+      "deployment_name": "text-embedding-ada-002",
+      "api_version": "2023-05-15"
+    },
+    "my_vector_db": {
+      "host": "localhost",
+      "port": 6333,
+      "collection": "documents"
+    }
+  }
+}
+```
+
+### Plugin Reading Config
+
+```python
+from rag2f.core.morpheus.decorators import hook
+
+@hook("rag2f_bootstrap_embedders", priority=10)
+def register_embedder(*, rag2f):
+    # Get plugin config
+    config = rag2f.spock.get_plugin_config("azure_openai_embedder")
+    
+    # Required: use ENV for secrets
+    api_key = rag2f.spock.get_plugin_config("azure_openai_embedder", "api_key")
+    if not api_key:
+        raise ValueError("API key not configured")
+    
+    embedder = AzureOpenAIEmbedder(
+        api_key=api_key,
+        endpoint=config.get("endpoint"),
+        deployment=config.get("deployment_name"),
+    )
+    
+    rag2f.optimus_prime.register("azure_openai", embedder)
+```
+
+## Best Practices
+
+### Secrets via ENV
+
+```bash
+# Good: secrets in environment
+export RAG2F__PLUGINS__MY_PLUGIN__API_KEY=sk-xxx
+
+# Bad: secrets in config.json (don't commit!)
+```
+
+### Config Validation in Plugins
+
+```python
+@hook("rag2f_bootstrap_embedders", priority=10)
+def setup_embedder(*, rag2f):
+    config = rag2f.spock.get_plugin_config("my_embedder")
+    
+    # Validate required config
+    required = ["endpoint", "deployment"]
+    missing = [k for k in required if not config.get(k)]
+    if missing:
+        raise ValueError(f"Missing config: {missing}")
+    
+    # Validate api_key from ENV
+    api_key = config.get("api_key")
+    if not api_key:
+        raise ValueError(
+            "API key required. Set RAG2F__PLUGINS__MY_EMBEDDER__API_KEY"
+        )
+```
+
+---
+
+## Optional: Testing with Spock
+
+See [testing.md](./testing.md) for complete testing guide.
+
+### In-Memory Config
+
+```python
+import pytest_asyncio
+from rag2f.core.rag2f import RAG2F
+
+@pytest_asyncio.fixture
+async def rag2f_with_config():
+    return await RAG2F.create(
+        config={
+            "rag2f": {"embedder_default": "test_embedder"},
+            "plugins": {
+                "test_plugin": {"setting": "value"}
+            }
+        }
+    )
+
+def test_config_access(rag2f_with_config):
+    assert rag2f_with_config.spock.get_rag2f_config("embedder_default") == "test_embedder"
+    assert rag2f_with_config.spock.get_plugin_config("test_plugin", "setting") == "value"
+```
+
+### Temp Config File
+
+```python
+import tempfile
+import json
+
+def test_with_temp_config():
+    config = {"rag2f": {"key": "value"}}
+    
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        json.dump(config, f)
+        config_path = f.name
+    
+    # Use config_path in tests
+```
+
+### Mocking ENV
+
+```python
+import os
+from unittest.mock import patch
+
+def test_env_override():
+    env = {"RAG2F__RAG2F__EMBEDDER_DEFAULT": "env_embedder"}
+    
+    with patch.dict(os.environ, env, clear=False):
+        spock = Spock()
+        spock.load()
+        assert spock.get_rag2f_config("embedder_default") == "env_embedder"
+```
+
+## API Reference
+
+```python
+class Spock:
+    def __init__(self, config_path: str | None = None): ...
+    
+    def load(self, config: dict[str, Any] | None = None) -> None:
+        """Load configuration (called automatically by RAG2F.create)."""
+    
+    def get_rag2f_config(self, key: str, default: Any = None) -> Any:
+        """Get core RAG2F configuration value."""
+    
+    def get_plugin_config(self, plugin_id: str, *keys: str, default: Any = None) -> Any:
+        """Get plugin configuration (whole config or nested keys)."""
+    
+    @staticmethod
+    def default_config() -> dict[str, Any]:
+        """Return default config structure: {'rag2f': {}, 'plugins': {}}"""
+```

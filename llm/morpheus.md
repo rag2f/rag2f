@@ -1,0 +1,241 @@
+# Morpheus — Plugin & Hook Manager
+
+> "What is real? How do you define 'real'?" — Morpheus, The Matrix
+
+Discovers plugins, loads hooks, and executes hook pipelines.
+
+## Core Concepts
+
+- **Plugin**: A directory with hooks, config, and optional dependencies
+- **Hook**: A decorated function that participates in a named pipeline
+- **Priority**: Higher priority hooks execute first (default: 1)
+
+## Plugin Discovery
+
+```python
+# Automatic on RAG2F.create()
+rag2f = await RAG2F.create(plugins_folder="./plugins/")
+
+# Manual refresh
+await rag2f.morpheus.find_plugins()
+```
+
+### Discovery Sources (Priority Order)
+
+1. **Entry points** (installed packages) — highest precedence
+2. **Filesystem** (`plugins/` folder) — local development
+
+## Hook Decorator
+
+```python
+from rag2f.core.morpheus.decorators import hook
+
+# With explicit name
+@hook("my_hook_name", priority=10)
+def handler(piped_value, *args, rag2f):
+    return modified_value
+
+# Using function name as hook name
+@hook(priority=5)
+def my_hook_name(piped_value, *args, rag2f):
+    return modified_value
+
+# Default priority (1)
+@hook
+def another_hook(piped_value, *args, rag2f):
+    return modified_value
+```
+
+## Hook Execution
+
+```python
+result = morpheus.execute_hook(
+    "hook_name",   # Hook pipeline name
+    initial_value, # First arg is "piped" through hooks
+    *other_args,   # Additional args passed to all hooks
+    rag2f=rag2f    # Required keyword arg
+)
+```
+
+### Pipeline Flow
+
+Hooks execute in descending priority order (higher priority first):
+
+1. `initial_value` passed to first hook (highest priority)
+2. Hook returns modified value (or `None` to keep previous)
+3. Returned value pipes to next hook
+4. Final hook's return becomes `execute_hook()` result
+
+### Return Value Rules
+
+- Hook returns `None` → previous value continues
+- Hook returns value → that value pipes to next hook
+- Final returned value becomes `execute_hook()` result
+
+## Plugin Structure
+
+```
+my_plugin/
+├── __init__.py
+├── plugin.toml           # or pyproject.toml with [tool.rag2f.plugin]
+├── hooks.py              # Functions decorated with @hook
+├── requirements.txt      # Plugin-specific dependencies (optional)
+└── nested/
+    └── more_hooks.py     # Hooks in subdirectories are discovered
+```
+
+### plugin.toml
+
+```toml
+[plugin]
+id = "my_plugin"
+name = "My Plugin"
+version = "1.0.0"
+```
+
+### pyproject.toml Alternative
+
+```toml
+[tool.rag2f.plugin]
+id = "my_plugin"
+name = "My Plugin"
+version = "1.0.0"
+```
+
+## Entry Point Registration
+
+For distributable plugins, register via entry points:
+
+```toml
+# pyproject.toml
+[project.entry-points."rag2f.plugins"]
+my_plugin = "my_plugin:get_plugin_path"
+```
+
+```python
+# my_plugin/__init__.py
+from pathlib import Path
+
+def get_plugin_path() -> str:
+    return str(Path(__file__).parent)
+```
+
+## Built-in Hooks
+
+| Hook Name | Module | Purpose |
+|-----------|--------|---------|
+| `get_id_input_text` | Johnny5 | Generate ID for input |
+| `check_duplicated_input_text` | Johnny5 | Check duplicate |
+| `handle_text_foreground` | Johnny5 | Process input |
+| `indiana_jones_retrieve` | IndianaJones | Retrieval |
+| `indiana_jones_search` | IndianaJones | Search + synthesis |
+| `rag2f_bootstrap_embedders` | OptimusPrime | Register embedders |
+
+## Hook Implementation Examples
+
+### Bootstrap Hook (No Piped Value)
+
+```python
+@hook("rag2f_bootstrap_embedders", priority=10)
+def register_my_embedder(*, rag2f):
+    config = rag2f.spock.get_plugin_config("my_embedder")
+    embedder = MyEmbedder(api_key=config.get("api_key"))
+    rag2f.optimus_prime.register("my_embedder", embedder)
+```
+
+### Processing Hook (Piped Value)
+
+```python
+@hook("handle_text_foreground", priority=5)
+def my_processor(done: bool, track_id: str, text: str, *, rag2f):
+    if done:
+        return done  # Already handled
+    
+    # Do processing...
+    success = process_text(track_id, text)
+    return success
+```
+
+### Chain Modification Hook
+
+```python
+@hook("morpheus_test_hook_message", priority=3)
+def add_to_message(message: str, *, rag2f):
+    return message + " priority 3"
+```
+
+## API Reference
+
+### Morpheus Methods
+
+```python
+# Check if plugin exists
+morpheus.plugin_exists(plugin_id: str) -> bool
+
+# Get plugin instance
+plugin = morpheus.get_plugin(plugin_id: str) -> Plugin
+
+# Get current plugin ID (from within a hook)
+plugin_id = morpheus.self_plugin_id() -> str
+
+# Execute hook pipeline
+result = morpheus.execute_hook(hook_name: str, *args, rag2f) -> Any
+
+# Register refresh callback
+morpheus.on_refresh_callbacks.append(my_callback)
+```
+
+---
+
+## Optional: Testing Hooks
+
+See [testing.md](./testing.md) for complete testing guide.
+
+### Mock execute_hook
+
+```python
+from unittest.mock import MagicMock
+
+mock_rag2f = MagicMock()
+
+def mock_execute_hook(hook_name, *args, **kwargs):
+    if hook_name == "my_hook":
+        return "mocked_result"
+    return args[0] if args else None
+
+mock_rag2f.morpheus.execute_hook.side_effect = mock_execute_hook
+```
+
+### Test Hook Priority
+
+```python
+def test_hook_priority(morpheus):
+    """Hooks execute in descending priority order."""
+    result = morpheus.execute_hook("test_hook", "", rag2f=None)
+    # Hooks with priority 10, 5, 1 execute in that order
+```
+
+### Fresh Morpheus Fixture
+
+```python
+@pytest.fixture
+def fresh_morpheus(rag2f):
+    """Fresh Morpheus instance for isolated testing."""
+    return Morpheus(rag2f, plugins_folder="./tests/mocks/plugins/")
+```
+
+## Plugin Context
+
+Access plugin ID from within hooks:
+
+```python
+@hook("my_hook", priority=5)
+def hook_with_context(value, *, rag2f):
+    # Get current plugin's ID
+    plugin_id = rag2f.morpheus.self_plugin_id()
+    
+    # Get plugin's config
+    config = rag2f.spock.get_plugin_config(plugin_id)
+    
+    return value
+```

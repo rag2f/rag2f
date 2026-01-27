@@ -1,0 +1,296 @@
+# RAG2F — LLM Integration Guide
+
+> Plugin-first kernel for composable Retrieval-Augmented Generation systems.
+
+## Core Modules
+
+RAG2F instance provides these managers:
+
+- `johnny5` (input) → `execute_handle_text_foreground()`
+- `indiana_jones` (retrieval) → `execute_retrieve()`, `execute_search()`
+- `optimus_prime` (embedders) → `get_default()`, `register()`
+- `xfiles` (repositories) → `execute_register()`, `execute_get()`
+- `morpheus` (plugins) → `execute_hook()`, `find_plugins()`
+- `spock` (config) → `get_plugin_config()`, `get_rag2f_config()`
+
+## Installation
+
+```bash
+pip install rag2f
+```
+
+**Optional plugin dependencies** — install only what you need:
+
+```bash
+# Azure OpenAI embedder
+pip install rag2f[azure-openai]
+
+# Development tools
+pip install rag2f[dev]
+```
+
+## Quick Start
+
+```python
+from rag2f.core.rag2f import RAG2F
+
+# Async factory (required)
+rag2f = await RAG2F.create(
+    config_path="config.json",      # optional
+    plugins_folder="./plugins/",    # optional
+    config={"rag2f": {...}}         # optional dict override
+)
+
+# Access managers
+rag2f.johnny5           # Input processing
+rag2f.indiana_jones     # RAG retrieval/search
+rag2f.optimus_prime     # Embedder registry
+rag2f.xfiles            # Repository registry
+rag2f.morpheus          # Plugin/hook manager
+rag2f.spock             # Configuration
+```
+
+---
+
+## The Result Pattern
+
+All `execute_*` methods return typed Result objects. **Never assume success** — always check status.
+
+```python
+result = johnny5.execute_handle_text_foreground(text)
+
+if result.is_ok():
+    print(result.track_id)
+else:
+    print(f"Error [{result.detail.code}]: {result.detail.message}")
+```
+
+### Result Structure
+
+```python
+class BaseResult:
+    status: Literal["success", "error"]
+    detail: StatusDetail | None  # present on error or partial success
+
+class StatusDetail:
+    code: str      # machine-readable: "empty", "duplicate", "not_found"
+    message: str   # human-readable description
+    context: dict  # diagnostic data
+```
+
+### Status Codes (StatusCode constants)
+
+| Code | Module | Meaning |
+|------|--------|---------|
+| `EMPTY` | All | Input/query is empty |
+| `INVALID` | All | Invalid parameter |
+| `NOT_FOUND` | All | Resource not found |
+| `DUPLICATE` | Johnny5 | Input already processed |
+| `NOT_HANDLED` | Johnny5 | No hook handled input |
+| `NO_RESULTS` | IndianaJones | Query returned nothing |
+| `ALREADY_EXISTS` | XFiles | Different instance with same ID |
+| `CACHE_MISS` | XFiles | Cache lookup failed |
+
+### Factory Methods
+
+```python
+# Success
+InsertResult.success(track_id="abc123")
+
+# Failure
+InsertResult.fail(StatusDetail(code=StatusCode.EMPTY, message="Input is empty"))
+```
+
+---
+
+## Execute Methods Reference
+
+### Johnny5 — Input Processing
+
+```python
+result = rag2f.johnny5.execute_handle_text_foreground(text)
+# Returns: InsertResult(status, track_id, detail)
+```
+
+Hooks invoked (in order):
+1. `get_id_input_text` — generate/retrieve ID
+2. `check_duplicated_input_text` — duplicate check
+3. `handle_text_foreground` — actual processing
+
+### IndianaJones — RAG Retrieval
+
+```python
+# Retrieve relevant chunks
+result = rag2f.indiana_jones.execute_retrieve(query, k=10)
+# Returns: RetrieveResult(status, query, items: list[RetrievedItem], detail)
+
+# Retrieve + synthesize answer
+result = rag2f.indiana_jones.execute_search(
+    query, 
+    k=10, 
+    return_mode=ReturnMode.WITH_ITEMS
+)
+# Returns: SearchResult(status, query, response, used_source_ids, items, detail)
+```
+
+Hooks invoked:
+- `indiana_jones_retrieve` — for execute_retrieve()
+- `indiana_jones_search` — for execute_search()
+
+### XFiles — Repository Management
+
+```python
+# Register repository
+result = rag2f.xfiles.execute_register(
+    id="users_db",
+    repository=my_repo,
+    meta={"type": "postgresql", "domain": "users"}
+)
+# Returns: RegisterResult(status, id, created: bool, detail)
+
+# Get repository
+result = rag2f.xfiles.execute_get("users_db")
+# Returns: GetResult(status, repository, id, detail)
+```
+
+### OptimusPrime — Embedder Registry
+
+```python
+# Register embedder
+rag2f.optimus_prime.register("my_embedder", embedder_instance)
+
+# Get default embedder
+embedder = rag2f.optimus_prime.get_default()
+vector = embedder.getEmbedding("hello world")
+```
+
+---
+
+## Configuration (Spock)
+
+Priority: `ENV > JSON > defaults`
+
+### JSON Structure
+
+```json
+{
+  "rag2f": {
+    "embedder_default": "azure_openai"
+  },
+  "plugins": {
+    "my_plugin": {
+      "api_key": "...",
+      "endpoint": "..."
+    }
+  }
+}
+```
+
+### Environment Variables
+
+Pattern: `RAG2F__<SECTION>__<KEY>__<SUBKEY>`
+
+```bash
+RAG2F__RAG2F__EMBEDDER_DEFAULT=azure_openai
+RAG2F__PLUGINS__MY_PLUGIN__API_KEY=sk-xxx
+```
+
+### Accessing Config
+
+```python
+# Core config
+value = rag2f.spock.get_rag2f_config("embedder_default")
+
+# Plugin config
+config = rag2f.spock.get_plugin_config("my_plugin")
+api_key = rag2f.spock.get_plugin_config("my_plugin", "api_key")
+```
+
+---
+
+## Plugins
+
+RAG2F is **plugin-first**: the core is minimal, functionality comes from plugins.
+
+### What Plugins Provide
+
+- **Embedders** — registered via OptimusPrime hooks
+- **Repositories** — registered via XFiles hooks  
+- **Processing logic** — hooks for Johnny5, IndianaJones pipelines
+- **Custom hooks** — extend any part of the system
+
+### Plugin Discovery Order
+
+Plugins are discovered in this priority order:
+
+1. **Entry points** (pip packages) — HIGHEST PRIORITY. Installed via `pip install rag2f-my-plugin`
+2. **Filesystem** (`plugins/` folder) — LOCAL DEVELOPMENT. Located at `./plugins/my_plugin/`
+
+**Entry points win** if the same plugin ID exists in both sources.
+
+### Using Plugins
+
+```bash
+# Install plugin
+pip install rag2f-azure-openai-embedder
+```
+
+```python
+# RAG2F auto-discovers installed plugins
+rag2f = await RAG2F.create(
+    plugins_folder="./plugins/",  # Also checks local folder
+    config_path="config.json"
+)
+
+# Verify loaded plugins
+print(rag2f.morpheus.plugins.keys())
+```
+
+### Plugin Guides
+
+| Guide | Purpose |
+|-------|---------|
+| [using_plugins.md](./using_plugins.md) | Install, configure, use plugins |
+| [creating_plugins.md](./creating_plugins.md) | Build your own plugins |
+| [morpheus.md](./morpheus.md) | Hook system details |
+
+---
+
+## Module Reference
+
+| Module | Alias | Purpose | Doc |
+|--------|-------|---------|-----|
+| Johnny5 | `input_manager` | Input processing | [johnny5.md](./johnny5.md) |
+| IndianaJones | `retrieve_manager` | RAG retrieval/search | [indiana_jones.md](./indiana_jones.md) |
+| OptimusPrime | `embedder_manager` | Embedder registry | [optimus_prime.md](./optimus_prime.md) |
+| XFiles | `repository_manager` | Repository registry | [xfiles.md](./xfiles.md) |
+| Morpheus | `plugin_manager` | Plugins & hooks | [morpheus.md](./morpheus.md) |
+| Spock | `config_manager` | Configuration | [spock.md](./spock.md) |
+
+---
+
+## Error Handling Philosophy
+
+- **Expected states** → Return Result with `status="error"` (no exception)
+- **System errors** → Raise exceptions (backend crash, timeout)
+
+This minimizes overhead for common cases (empty input, duplicates) while preserving stack traces for actual bugs.
+
+---
+
+## Optional
+
+### Testing
+
+See: [testing.md](./testing.md)
+
+Quick mock pattern:
+
+```python
+from unittest.mock import MagicMock
+from rag2f.core.johnny5 import Johnny5
+
+mock_rag2f = MagicMock()
+mock_rag2f.morpheus.execute_hook.side_effect = lambda hook_name, *args, **kw: ...
+johnny5 = Johnny5(rag2f_instance=mock_rag2f)
+```
