@@ -80,10 +80,6 @@ Plugins are the primary extension mechanism. A plugin can provide:
 
 Entry points are the production path; filesystem plugins are a local dev path. The core never hardcodes a specific backend.
 
-Included plugin examples:
-
-- `plugins/rag2f_azure_openai_embedder`: embedder plugin using Spock for config.
-- `plugins/rag2f_macgyver`: in-memory plugin for fast local experiments.
 
 ## XFiles deep dive (repository manager)
 
