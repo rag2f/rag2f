@@ -31,7 +31,7 @@ def handle_text_foreground(done, item_id, text, rag2f):
 
 
 @hook
-def indiana_jones_retrieve(result, query, k, rag2f):
+def indiana_jones_retrieve(result, query, k, return_mode, for_synthesize, rag2f):
     """Enrich retrieve result with mock data."""
     from rag2f.core.dto.indiana_jones_dto import RetrievedItem
 
@@ -41,7 +41,7 @@ def indiana_jones_retrieve(result, query, k, rag2f):
             RetrievedItem(
                 id=f"mock-item-{i}",
                 text=f"Mock retrieved content {i} for query: {query}",
-                metadata={"source": "mock", "query": query},
+                metadata={"source": "mock", "query": query, "for_synthesize": for_synthesize},
                 score=1.0 - (i * 0.1),
             )
             for i in range(min(k, 3))
@@ -50,25 +50,11 @@ def indiana_jones_retrieve(result, query, k, rag2f):
 
 
 @hook
-def indiana_jones_search(result, query, k, return_mode, kwargs, rag2f):
-    """Enrich search result with mock data."""
-    from rag2f.core.dto.indiana_jones_dto import RetrievedItem
-
-    # Add mock items if requested
-    if return_mode.value == "with_items" and not result.items:
-        result.items = [
-            RetrievedItem(
-                id=f"mock-item-{i}",
-                text=f"Mock content {i}",
-                metadata={"source": "mock"},
-                score=1.0 - (i * 0.1),
-            )
-            for i in range(min(k, 2))
-        ]
-
+def indiana_jones_synthesize(result, retrieve_result, return_mode, kwargs, rag2f):
+    """Synthesize response from retrieved items."""
     # Add mock response if empty
     if not result.response:
-        result.response = f"Mock response for: {query}"
-        result.used_source_ids = [f"mock-item-{i}" for i in range(min(len(result.items or []), 2))]
+        result.response = f"Mock response for: {result.query}"
+        result.used_source_ids = [item.id for item in (retrieve_result.items or [])[:2]]
 
     return result

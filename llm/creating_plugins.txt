@@ -118,8 +118,8 @@ def enrich_results(result, query, k, *, rag2f):
 | `get_id_input_text` | Johnny5 | Generate input ID | `(track_id, text, *, rag2f)` |
 | `check_duplicated_input_text` | Johnny5 | Check duplicate | `(is_dup, track_id, text, *, rag2f)` |
 | `handle_text_foreground` | Johnny5 | Process input | `(done, track_id, text, *, rag2f)` |
-| `indiana_jones_retrieve` | IndianaJones | Retrieval | `(result, query, k, *, rag2f)` |
-| `indiana_jones_search` | IndianaJones | Search | `(result, query, k, mode, kwargs, *, rag2f)` |
+| `indiana_jones_retrieve` | IndianaJones | Retrieval | `(result, query, k, return_mode, for_synthesize, *, rag2f)` |
+| `indiana_jones_synthesize` | IndianaJones | Synthesize | `(result, retrieve_result, return_mode, kwargs, *, rag2f)` |
 
 ---
 

@@ -75,7 +75,7 @@ def test_activate_plugin(plugin):
         "check_duplicated_input_text",
         "handle_text_foreground",
         "indiana_jones_retrieve",
-        "indiana_jones_search",
+        "indiana_jones_synthesize",
     }
     assert hook_names == expected_hook_names
     for hook in plugin.hooks:

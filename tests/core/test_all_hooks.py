@@ -55,7 +55,13 @@ def test_indiana_jones_retrieve_hook_enriches_result(rag2f):
     result = RetrieveResult(query="test query")
 
     output = rag2f.morpheus.execute_hook(
-        "indiana_jones_retrieve", result, "test query", 10, rag2f=rag2f
+        "indiana_jones_retrieve",
+        result,
+        "test query",
+        10,
+        ReturnMode.WITH_ITEMS,
+        False,  # for_synthesize
+        rag2f=rag2f,
     )
 
     assert isinstance(output, RetrieveResult)
@@ -64,15 +70,23 @@ def test_indiana_jones_retrieve_hook_enriches_result(rag2f):
     assert all(item.id.startswith("mock-item-") for item in output.items)
 
 
-def test_indiana_jones_search_hook_enriches_result(rag2f):
-    """indiana_jones_search hook must enrich SearchResult with mock data."""
-    result = SearchResult(query="test query")
+def test_indiana_jones_synthesize_hook_creates_response(rag2f):
+    """indiana_jones_synthesize hook must create SearchResult response from retrieve."""
+    from rag2f.core.dto.indiana_jones_dto import RetrievedItem
+
+    retrieve_result = RetrieveResult(
+        query="test query",
+        items=[
+            RetrievedItem(id="item-1", text="content 1", score=0.9),
+            RetrievedItem(id="item-2", text="content 2", score=0.8),
+        ],
+    )
+    search_result = SearchResult(query="test query", items=retrieve_result.items)
 
     output = rag2f.morpheus.execute_hook(
-        "indiana_jones_search",
-        result,
-        "test query",
-        10,
+        "indiana_jones_synthesize",
+        search_result,
+        retrieve_result,
         ReturnMode.WITH_ITEMS,
         {},
         rag2f=rag2f,
@@ -81,5 +95,4 @@ def test_indiana_jones_search_hook_enriches_result(rag2f):
     assert isinstance(output, SearchResult)
     assert output.query == "test query"
     assert output.response.startswith("Mock response")
-    assert len(output.items) > 0
     assert len(output.used_source_ids) > 0

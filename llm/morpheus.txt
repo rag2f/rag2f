@@ -128,7 +128,7 @@ def get_plugin_path() -> str:
 | `check_duplicated_input_text` | Johnny5 | Check duplicate |
 | `handle_text_foreground` | Johnny5 | Process input |
 | `indiana_jones_retrieve` | IndianaJones | Retrieval |
-| `indiana_jones_search` | IndianaJones | Search + synthesis |
+| `indiana_jones_synthesize` | IndianaJones | Synthesize response from retrieved items |
 | `rag2f_bootstrap_embedders` | OptimusPrime | Register embedders |
 
 ## Hook Implementation Examples

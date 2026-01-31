@@ -13,6 +13,19 @@ The **README** describes **what** RAG2F is.
 
 ---
 
+## Design Principles
+- **Modularity**: core + plugins architecture.
+- **KISS**: keep it simple, avoid over-engineering.
+- **Extensibility**: easy to add features via plugins/hooks.
+- **Testability**: high test coverage, mock external dependencies.
+- **Observability**: structured logging, meaningful log levels.
+- **YAGNI**: You Ain't Gonna Need It — implement only what is necessary now.
+- **DRY**: Don't Repeat Yourself — avoid code duplication.
+- **POLA**: Principle of Least Astonishment — code should behave as expected.
+- **Fail Fast**: detect and handle errors early.
+
+---
+
 ## Architecture
 **Core modules**
 - Johnny5 → `src/rag2f/core/johnny5/`

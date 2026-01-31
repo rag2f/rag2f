@@ -121,21 +121,26 @@ Hooks invoked (in order):
 
 ```python
 # Retrieve relevant chunks
-result = rag2f.indiana_jones.execute_retrieve(query, k=10)
+result = rag2f.indiana_jones.execute_retrieve(
+    query,
+    k=10,
+    return_mode=ReturnMode.WITH_ITEMS,  # default
+    for_synthesize=False  # default
+)
 # Returns: RetrieveResult(status, query, items: list[RetrievedItem], detail)
 
-# Retrieve + synthesize answer
+# Retrieve + synthesize answer (calls execute_retrieve internally)
 result = rag2f.indiana_jones.execute_search(
     query, 
     k=10, 
-    return_mode=ReturnMode.WITH_ITEMS
+    return_mode=ReturnMode.MINIMAL  # default; WITH_ITEMS to include chunks
 )
 # Returns: SearchResult(status, query, response, used_source_ids, items, detail)
 ```
 
 Hooks invoked:
-- `indiana_jones_retrieve` — for execute_retrieve()
-- `indiana_jones_search` — for execute_search()
+- `indiana_jones_retrieve` — for execute_retrieve() (also called by execute_search)
+- `indiana_jones_synthesize` — for execute_search() after retrieval
 
 ### XFiles — Repository Management
 
