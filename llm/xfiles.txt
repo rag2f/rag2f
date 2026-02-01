@@ -263,7 +263,7 @@ class MyVectorRepo:
 
 ## Optional: Testing XFiles
 
-See [testing.md](./testing.md) for complete testing guide.
+See [testing.txt](./testing.txt) for complete testing guide.
 
 ### Mock Repository
 

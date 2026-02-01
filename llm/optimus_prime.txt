@@ -206,7 +206,7 @@ except LookupError as e:
 
 ## Optional: Testing OptimusPrime
 
-See [testing.md](./testing.md) for complete testing guide.
+See [testing.txt](./testing.txt) for complete testing guide.
 
 ### Mock Embedder
 

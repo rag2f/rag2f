@@ -179,7 +179,7 @@ def setup_embedder(*, rag2f):
 
 ## Optional: Testing with Spock
 
-See [testing.md](./testing.md) for complete testing guide.
+See [testing.txt](./testing.txt) for complete testing guide.
 
 ### In-Memory Config
 

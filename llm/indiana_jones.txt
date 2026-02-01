@@ -230,7 +230,7 @@ except RetrievalError as e:
 
 ## Optional: Testing IndianaJones
 
-See [testing.md](./testing.md) for complete testing guide.
+See [testing.txt](./testing.txt) for complete testing guide.
 
 ```python
 from unittest.mock import MagicMock

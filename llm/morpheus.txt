@@ -189,7 +189,7 @@ morpheus.on_refresh_callbacks.append(my_callback)
 
 ## Optional: Testing Hooks
 
-See [testing.md](./testing.md) for complete testing guide.
+See [testing.txt](./testing.txt) for complete testing guide.
 
 ### Mock execute_hook
 

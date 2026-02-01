@@ -110,7 +110,7 @@ def store_in_vector_db(done, track_id, text, *, rag2f):
 
 ## Optional: Testing Johnny5
 
-See [testing.md](./testing.md) for complete testing guide.
+See [testing.txt](./testing.txt) for complete testing guide.
 
 ```python
 from unittest.mock import MagicMock

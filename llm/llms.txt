@@ -255,9 +255,9 @@ print(rag2f.morpheus.plugins.keys())
 
 | Guide | Purpose |
 |-------|---------|
-| [using_plugins.md](./using_plugins.md) | Install, configure, use plugins |
-| [creating_plugins.md](./creating_plugins.md) | Build your own plugins |
-| [morpheus.md](./morpheus.md) | Hook system details |
+| [using_plugins.txt](./using_plugins.txt) | Install, configure, use plugins |
+| [creating_plugins.txt](./creating_plugins.txt) | Build your own plugins |
+| [morpheus.txt](./morpheus.txt) | Hook system details |
 
 ---
 
@@ -265,12 +265,12 @@ print(rag2f.morpheus.plugins.keys())
 
 | Module | Alias | Purpose | Doc |
 |--------|-------|---------|-----|
-| Johnny5 | `input_manager` | Input processing | [johnny5.md](./johnny5.md) |
-| IndianaJones | `retrieve_manager` | RAG retrieval/search | [indiana_jones.md](./indiana_jones.md) |
-| OptimusPrime | `embedder_manager` | Embedder registry | [optimus_prime.md](./optimus_prime.md) |
-| XFiles | `repository_manager` | Repository registry | [xfiles.md](./xfiles.md) |
-| Morpheus | `plugin_manager` | Plugins & hooks | [morpheus.md](./morpheus.md) |
-| Spock | `config_manager` | Configuration | [spock.md](./spock.md) |
+| Johnny5 | `input_manager` | Input processing | [johnny5.txt](./johnny5.txt) |
+| IndianaJones | `retrieve_manager` | RAG retrieval/search | [indiana_jones.txt](./indiana_jones.txt) |
+| OptimusPrime | `embedder_manager` | Embedder registry | [optimus_prime.txt](./optimus_prime.txt) |
+| XFiles | `repository_manager` | Repository registry | [xfiles.txt](./xfiles.txt) |
+| Morpheus | `plugin_manager` | Plugins & hooks | [morpheus.txt](./morpheus.txt) |
+| Spock | `config_manager` | Configuration | [spock.txt](./spock.txt) |
 
 ---
 
@@ -287,7 +287,7 @@ This minimizes overhead for common cases (empty input, duplicates) while preserv
 
 ### Testing
 
-See: [testing.md](./testing.md)
+See: [testing.txt](./testing.txt)
 
 Quick mock pattern:
 
