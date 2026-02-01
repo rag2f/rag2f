@@ -218,3 +218,5 @@ tests/mocks/plugins/mock_plugin/settings.json
 try.py
 
 temp/
+
+.DS_Store

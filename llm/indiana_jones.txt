@@ -1,0 +1,268 @@
+# IndianaJones — Retrieval Manager
+
+> "Fortune and glory, kid. Fortune and glory." — Indiana Jones
+
+Handles RAG retrieval and search operations with extensible backends.
+
+## Architecture
+
+```
+execute_retrieve()  ────────────────────────────────>  RetrieveResult
+                          │
+                          ▼
+                    hook: indiana_jones_retrieve
+
+execute_search()  ──► execute_retrieve() ──► hook: indiana_jones_synthesize ──>  SearchResult
+```
+
+`execute_search()` is built on top of `execute_retrieve()`:
+1. Calls `execute_retrieve(for_synthesize=True)` to get items.
+2. Runs the `indiana_jones_synthesize` hook to generate a response.
+3. Applies `return_mode` policy (keeps or drops items).
+
+## Key Methods
+
+```python
+# Retrieve relevant chunks
+result = indiana_jones.execute_retrieve(
+    query: str,
+    k: int = 10,
+    *,
+    return_mode: ReturnMode = ReturnMode.WITH_ITEMS,
+    for_synthesize: bool = False,
+) -> RetrieveResult
+
+# Retrieve + synthesize answer (uses execute_retrieve internally)
+result = indiana_jones.execute_search(
+    query: str, 
+    k: int = 10,
+    return_mode: ReturnMode = ReturnMode.MINIMAL
+) -> SearchResult
+```
+
+## Difference at a Glance
+
+| Aspect | `execute_retrieve()` | `execute_search()` |
+|--------|----------------------|--------------------|
+| Returns | `RetrieveResult` with `items` | `SearchResult` with `response` |
+| Hook | `indiana_jones_retrieve` | `indiana_jones_retrieve` → `indiana_jones_synthesize` |
+| Default `return_mode` | `WITH_ITEMS` | `MINIMAL` |
+| Purpose | Get relevant chunks | Get synthesized answer |
+
+- `for_synthesize=True` is set automatically when `execute_search()` calls `execute_retrieve()`.
+  Plugins can use this flag to adjust retrieval behavior (e.g., different reranking).
+
+## Result Types
+
+```python
+class RetrievedItem(BaseModel):
+    id: str                     # Chunk/document identifier
+    text: str                   # Passage text
+    metadata: Mapping[str, Any] # Loader/user metadata
+    score: float | None         # Relevance score
+    extra: dict[str, Any]       # Plugin extension point
+
+class RetrieveResult(BaseResult):
+    query: str
+    items: list[RetrievedItem]
+    extra: dict[str, Any]
+
+class SearchResult(BaseResult):
+    query: str
+    response: str               # Synthesized answer
+    used_source_ids: list[str]  # Sources used in response
+    items: list[RetrievedItem] | None  # Only with ReturnMode.WITH_ITEMS
+    extra: dict[str, Any]
+```
+
+## Return Modes
+
+```python
+from rag2f.core.dto.indiana_jones_dto import ReturnMode
+
+# Minimal (default for search): response + used_source_ids only
+result = indiana.execute_search(query, return_mode=ReturnMode.MINIMAL)
+
+# With items: includes retrieved chunks
+result = indiana.execute_search(query, return_mode=ReturnMode.WITH_ITEMS)
+
+# For execute_retrieve, default is WITH_ITEMS (always returns items)
+result = indiana.execute_retrieve(query)  # items always populated
+```
+
+## Status Codes
+
+| Code | Meaning |
+|------|---------|
+| `StatusCode.EMPTY` | Query is empty or whitespace-only |
+| `StatusCode.NO_RESULTS` | Query returned no items |
+| `StatusCode.DEGRADED` | Response partially degraded |
+
+## Hooks
+
+### Retrieve Hook
+
+```python
+@hook("indiana_jones_retrieve", priority=10)
+def my_retriever(
+    result: RetrieveResult,
+    query: str,
+    k: int,
+    return_mode: ReturnMode,
+    for_synthesize: bool,
+    *,
+    rag2f
+):
+    """Perform retrieval from vector store.
+    
+    Args:
+        result: Initial RetrieveResult (query set, items empty).
+        query: The search query.
+        k: Max items to retrieve.
+        return_mode: Requested return mode.
+        for_synthesize: True if called by execute_search().
+        rag2f: RAG2F instance.
+    """
+    # Optionally adjust behavior based on for_synthesize
+    effective_k = k * 2 if for_synthesize else k  # Over-fetch for synthesis
+    
+    items = my_vector_db.search(query, effective_k)
+    
+    return RetrieveResult.success(
+        query=query,
+        items=[RetrievedItem(id=i.id, text=i.text, score=i.score) for i in items[:k]]
+    )
+```
+
+### Synthesize Hook
+
+```python
+@hook("indiana_jones_synthesize", priority=10)
+def my_synthesizer(
+    result: SearchResult,
+    retrieve_result: RetrieveResult,
+    return_mode: ReturnMode,
+    kwargs: dict,
+    *,
+    rag2f
+):
+    """Synthesize response from retrieved items.
+    
+    Args:
+        result: Initial SearchResult (query and items from retrieve_result).
+        retrieve_result: The full RetrieveResult from the retrieval step.
+        return_mode: Requested return mode (items policy applied after hook).
+        kwargs: Additional parameters from execute_search().
+        rag2f: RAG2F instance.
+    """
+    items = retrieve_result.items
+    context = "\n".join(i.text for i in items)
+    
+    response = my_llm.generate(f"Answer based on:\n{context}\n\nQuestion: {result.query}")
+    
+    result.response = response
+    result.used_source_ids = [i.id for i in items]
+    return result
+```
+
+## Usage Examples
+
+### Basic Retrieval
+
+```python
+result = rag2f.indiana_jones.execute_retrieve("How does authentication work?", k=5)
+
+if result.is_ok():
+    for item in result.items:
+        print(f"[{item.score:.2f}] {item.text[:100]}...")
+else:
+    print(f"Error: {result.detail.message}")
+```
+
+### Search with Answer
+
+```python
+result = rag2f.indiana_jones.execute_search(
+    "What are the security best practices?",
+    k=10,
+    return_mode=ReturnMode.WITH_ITEMS
+)
+
+if result.is_ok():
+    print(f"Answer: {result.response}")
+    print(f"Sources: {result.used_source_ids}")
+    
+    if result.items:
+        print("\nRetrieved chunks:")
+        for item in result.items:
+            print(f"  - {item.id}: {item.text[:50]}...")
+```
+
+### Error Handling
+
+```python
+result = rag2f.indiana_jones.execute_retrieve("")
+
+if result.is_error():
+    match result.detail.code:
+        case "empty":
+            print("Please provide a query")
+        case "no_results":
+            print("No relevant documents found")
+```
+
+## Exception: RetrievalError
+
+System errors (not expected states) raise `RetrievalError`:
+
+```python
+from rag2f.core.indiana_jones.exceptions import RetrievalError
+
+try:
+    result = rag2f.indiana_jones.execute_retrieve(query)
+except RetrievalError as e:
+    # Backend crash, timeout, etc.
+    print(f"System error: {e}")
+    print(f"Context: {e.context}")  # {"query": ..., "k": ...}
+```
+
+---
+
+## Optional: Testing IndianaJones
+
+See [testing.txt](./testing.txt) for complete testing guide.
+
+```python
+from unittest.mock import MagicMock
+from rag2f.core.indiana_jones import IndianaJones
+from rag2f.core.dto.indiana_jones_dto import RetrieveResult, RetrievedItem, ReturnMode
+
+def test_indiana_retrieve():
+    mock_rag2f = MagicMock()
+    
+    def mock_hook(hook_name, result, *args, **kw):
+        if hook_name == "indiana_jones_retrieve":
+            return RetrieveResult.success(
+                query=args[0],
+                items=[
+                    RetrievedItem(id="doc1", text="Hello world", score=0.95)
+                ]
+            )
+        return result
+    
+    mock_rag2f.morpheus.execute_hook.side_effect = mock_hook
+    
+    indiana = IndianaJones(rag2f_instance=mock_rag2f)
+    result = indiana.execute_retrieve("test query", k=5)
+    
+    assert result.is_ok()
+    assert len(result.items) == 1
+    assert result.items[0].id == "doc1"
+
+def test_indiana_empty_query():
+    indiana = IndianaJones()
+    result = indiana.execute_retrieve("")
+    
+    assert result.is_error()
+    assert result.detail.code == "empty"
+```

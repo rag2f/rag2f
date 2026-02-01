@@ -67,7 +67,7 @@ def activated(plugin, rag2f_instance: RAG2F):
     repo_id = f"{plugin.id}_repository"
     if not repo_manager.has(repo_id):
         repo = MockRepository(repo_id)
-        repo_manager.register(repo_id, repo, meta={"origin": "mock_plugin"})
+        repo_manager.execute_register(repo_id, repo, meta={"origin": "mock_plugin"})
 
 
 @plugin

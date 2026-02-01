@@ -19,7 +19,9 @@ def test_plugin_override_registers_repository(rag2f):
     """Registering a plugin override should expose a repository."""
     repo_id = "mock_plugin_repository"
     assert rag2f.xfiles.has(repo_id), "mock_plugin repository not registered"
-    repo = rag2f.xfiles.get(repo_id)
+    result = rag2f.xfiles.execute_get(repo_id)
+    assert result.is_ok()
+    repo = result.repository
     assert repo is not None
     assert repo.name == repo_id
     assert repo.capabilities() == minimal_crud_capabilities()

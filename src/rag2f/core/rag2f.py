@@ -8,6 +8,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 
+from rag2f.core.indiana_jones.indiana_jones import IndianaJones
 from rag2f.core.johnny5.johnny5 import Johnny5
 from rag2f.core.morpheus.morpheus import Morpheus
 from rag2f.core.optimus_prime.optimus_prime import OptimusPrime
@@ -34,6 +35,7 @@ class RAG2F:
         """
         self.spock = Spock(config_path=config_path)
         self.johnny5 = Johnny5(rag2f_instance=self)
+        self.indiana_jones = IndianaJones(rag2f_instance=self)
         self.morpheus = Morpheus(self, plugins_folder=plugins_folder)
         self.optimus_prime = OptimusPrime(spock=self.spock)
         self.xfiles = XFiles(spock=self.spock)
@@ -41,6 +43,7 @@ class RAG2F:
         # Alias
         self.config_manager = self.spock
         self.input_manager = self.johnny5
+        self.retrieve_manager = self.indiana_jones
         self.plugin_manager = self.morpheus
         self.embedder_manager = self.optimus_prime
         self.repository_manager = self.xfiles

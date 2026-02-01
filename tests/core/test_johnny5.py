@@ -1,109 +1,108 @@
-"""Unit tests for the Johnny5 foreground text handler."""
+"""Contract and regression tests for Johnny5 foreground text handler.
 
-import uuid
-from types import SimpleNamespace
-from unittest.mock import Mock
+Tests verify the Result pattern: expected states return InsertResult with
+status="error", success returns InsertResult with status="success".
+"""
 
-import rag2f.core.johnny5.johnny5 as johnny5_module
+from unittest.mock import MagicMock
+
+from rag2f.core.dto.result_dto import StatusCode
 from rag2f.core.johnny5.johnny5 import Johnny5
 
 
-def test_handle_text_basic():
-    """Empty or whitespace-only input should fail."""
+def test_handle_text_empty_returns_error_result():
+    """Empty or whitespace-only input returns InsertResult with error."""
     j = Johnny5()
-    assert j.handle_text_foreground("").status == "failure"
-    assert j.handle_text_foreground(" \n ").status == "failure"
-    assert j.handle_text_foreground("\n\n").status == "failure"
-    assert j.handle_text_foreground(None).status == "failure"
+
+    result = j.execute_handle_text_foreground("")
+    assert result.is_error()
+    assert result.detail.code == StatusCode.EMPTY
+
+    result = j.execute_handle_text_foreground("   ")
+    assert result.is_error()
+    assert result.detail.code == StatusCode.EMPTY
+
+    result = j.execute_handle_text_foreground(None)
+    assert result.is_error()
+    assert result.detail.code == StatusCode.EMPTY
 
 
-def _build_johnny5(side_effect):
-    """Build a Johnny5 wired with a mocked Morpheus hook executor."""
-    morpheus = Mock()
-    morpheus.execute_hook = Mock(side_effect=side_effect)
-    rag2f = SimpleNamespace(morpheus=morpheus)
-    return Johnny5(rag2f_instance=rag2f), morpheus, rag2f
+def test_handle_text_returns_success_result():
+    """Successful insert returns InsertResult with track_id."""
+    mock_rag2f = MagicMock()
 
-
-def test_handle_text_uses_hook_id():
-    """The hook-provided id should be used throughout the flow."""
-    expected_id = "from-hook"
-
-    def side_effect(hook_name, *args, **kwargs):
+    def mock_hook(hook_name, *args, **kw):
         if hook_name == "get_id_input_text":
-            return expected_id
+            return "test-id"
         if hook_name == "check_duplicated_input_text":
-            assert args[1] == expected_id
             return False
         if hook_name == "handle_text_foreground":
-            assert args[1] == expected_id
             return True
+        return None
 
-    johnny5, morpheus, rag2f = _build_johnny5(side_effect)
-    response = johnny5.handle_text_foreground("hello world")
+    mock_rag2f.morpheus.execute_hook.side_effect = mock_hook
 
-    assert response.status == "success"
-    morpheus.execute_hook.assert_any_call("get_id_input_text", None, "hello world", rag2f=rag2f)
+    johnny5 = Johnny5(rag2f_instance=mock_rag2f)
+    result = johnny5.execute_handle_text_foreground("test input")
+
+    assert result.is_ok()
+    assert result.status == "success"
+    assert result.track_id == "test-id"
 
 
-def test_handle_text_generates_uuid_when_hook_returns_none(monkeypatch):
-    """If id hook returns None, Johnny5 should generate a UUID."""
-    fake_uuid = uuid.UUID("00000000-0000-0000-0000-00000000abcd")
-    monkeypatch.setattr(johnny5_module.uuid, "uuid4", lambda: fake_uuid)
+def test_handle_text_duplicate_returns_error_result():
+    """Duplicate text returns InsertResult with error."""
+    mock_rag2f = MagicMock()
 
-    def side_effect(hook_name, *args, **kwargs):
+    def mock_hook(hook_name, *args, **kw):
         if hook_name == "get_id_input_text":
-            return None
+            return "dup-id"
         if hook_name == "check_duplicated_input_text":
-            assert args[1] == fake_uuid.hex
+            return True
+        raise AssertionError("Should not reach handle_text_foreground hook")
+
+    mock_rag2f.morpheus.execute_hook.side_effect = mock_hook
+
+    johnny5 = Johnny5(rag2f_instance=mock_rag2f)
+    result = johnny5.execute_handle_text_foreground("duplicate text")
+
+    assert result.is_error()
+    assert result.detail.code == StatusCode.DUPLICATE
+    assert result.detail.context.get("id") == "dup-id"
+
+
+def test_handle_text_not_handled_returns_error_result():
+    """Text not handled by hooks returns InsertResult with error."""
+    mock_rag2f = MagicMock()
+
+    def mock_hook(hook_name, *args, **kw):
+        if hook_name == "get_id_input_text":
+            return "test-id"
+        if hook_name == "check_duplicated_input_text":
             return False
         if hook_name == "handle_text_foreground":
-            assert args[1] == fake_uuid.hex
-            return True
-
-    johnny5, morpheus, _ = _build_johnny5(side_effect)
-    response = johnny5.handle_text_foreground("ciao")
-
-    assert response.status == "success"
-    assert morpheus.execute_hook.call_args_list[0].args[0] == "get_id_input_text"
-
-
-def test_handle_text_respects_duplicated_hook():
-    """If duplicated hook returns True, handler should stop early."""
-    expected_id = "dup-id"
-
-    def side_effect(hook_name, *args, **kwargs):
-        if hook_name == "get_id_input_text":
-            return expected_id
-        if hook_name == "check_duplicated_input_text":
-            assert args[1] == expected_id
-            return True
-        raise AssertionError("handle_text_foreground hook should not be called when duplicated")
-
-    johnny5, morpheus, _ = _build_johnny5(side_effect)
-    response = johnny5.handle_text_foreground("hello again")
-
-    assert response.status == "duplicated"
-    assert morpheus.execute_hook.call_count == 2
-
-
-def test_handle_text_handles_done_flag_from_hook():
-    """If the handler hook returns False, the overall status should be failure."""
-    expected_id = "done-id"
-
-    def side_effect(hook_name, *args, **kwargs):
-        if hook_name == "get_id_input_text":
-            return expected_id
-        if hook_name == "check_duplicated_input_text":
-            assert args[1] == expected_id
             return False
-        if hook_name == "handle_text_foreground":
-            assert args[1] == expected_id
-            return False
+        return None
 
-    johnny5, morpheus, _ = _build_johnny5(side_effect)
-    response = johnny5.handle_text_foreground("not handled")
+    mock_rag2f.morpheus.execute_hook.side_effect = mock_hook
 
-    assert response.status == "failure"
-    assert response.message == "Input text not handled"
-    assert morpheus.execute_hook.call_args_list[-1].args[0] == "handle_text_foreground"
+    johnny5 = Johnny5(rag2f_instance=mock_rag2f)
+    result = johnny5.execute_handle_text_foreground("unhandled text")
+
+    assert result.is_error()
+    assert result.detail.code == StatusCode.NOT_HANDLED
+
+
+def test_handle_text_without_rag2f():
+    """Without rag2f, text returns appropriate error states."""
+    johnny5 = Johnny5()
+
+    # Empty text returns error
+    result = johnny5.execute_handle_text_foreground("")
+    assert result.is_error()
+    assert result.detail.code == "empty"
+
+    # Non-empty text without hooks returns not_handled
+    result = johnny5.execute_handle_text_foreground("test")
+    assert result.is_error()
+    assert result.detail.code == "not_handled"
