@@ -8,6 +8,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 
+from rag2f.core.flux_capacitor.flux_capacitor import FluxCapacitor
 from rag2f.core.indiana_jones.indiana_jones import IndianaJones
 from rag2f.core.johnny5.johnny5 import Johnny5
 from rag2f.core.morpheus.morpheus import Morpheus
@@ -37,6 +38,9 @@ class RAG2F:
         self.johnny5 = Johnny5(rag2f_instance=self)
         self.indiana_jones = IndianaJones(rag2f_instance=self)
         self.morpheus = Morpheus(self, plugins_folder=plugins_folder)
+        self.flux_capacitor = FluxCapacitor(
+            spock=self.spock, morpheus=self.morpheus, rag2f_instance=self
+        )
         self.optimus_prime = OptimusPrime(spock=self.spock)
         self.xfiles = XFiles(spock=self.spock)
 
@@ -45,6 +49,7 @@ class RAG2F:
         self.input_manager = self.johnny5
         self.retrieve_manager = self.indiana_jones
         self.plugin_manager = self.morpheus
+        self.task_manager = self.flux_capacitor
         self.embedder_manager = self.optimus_prime
         self.repository_manager = self.xfiles
         logger.debug("RAG2F instance created.")
