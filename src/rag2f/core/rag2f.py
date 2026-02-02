@@ -38,9 +38,7 @@ class RAG2F:
         self.johnny5 = Johnny5(rag2f_instance=self)
         self.indiana_jones = IndianaJones(rag2f_instance=self)
         self.morpheus = Morpheus(self, plugins_folder=plugins_folder)
-        self.flux_capacitor = FluxCapacitor(
-            spock=self.spock, morpheus=self.morpheus, rag2f_instance=self
-        )
+        self.flux_capacitor = FluxCapacitor(rag2f_instance=self)
         self.optimus_prime = OptimusPrime(spock=self.spock)
         self.xfiles = XFiles(spock=self.spock)
 

@@ -16,7 +16,6 @@ from rag2f.core.flux_capacitor.errors import MissingQueueError, MissingStoreErro
 from rag2f.core.flux_capacitor.queue import BaseTaskQueue
 from rag2f.core.flux_capacitor.store import BaseTaskStore
 from rag2f.core.flux_capacitor.task_models import PayloadRef, Task, TaskChildRequest, TaskContext
-from rag2f.core.morpheus.morpheus import Morpheus
 
 logger = logging.getLogger(__name__)
 
@@ -51,20 +50,18 @@ class FluxCapacitor:
     def __init__(
         self,
         *,
-        spock: Any | None = None,
-        morpheus: Morpheus,
-        rag2f_instance: Any | None = None,
+        rag2f_instance: Any,
         payload_loader: Any | None = None,
     ) -> None:
-        self._spock = spock
-        self._morpheus = morpheus
         self._rag2f = rag2f_instance
+        self._spock = rag2f_instance.config_manager
+        self._morpheus = rag2f_instance.plugin_manager
         self._payload_loader = payload_loader
         self._stores: dict[str, BaseTaskStore] = {}
         self._queues: dict[str, BaseTaskQueue] = {}
         self._default_store_name: str | None = None
         self._default_queue_name: str | None = None
-        self._config = FluxCapacitorConfig.from_spock(spock)
+        self._config = FluxCapacitorConfig.from_spock(self._spock)
         logger.debug("FluxCapacitor instance created.")
 
     # ------------------------------------------------------------------
