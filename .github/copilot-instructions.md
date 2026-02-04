@@ -327,7 +327,7 @@ def test_load_config_debug(caplog):
 
 ## Useful files
 - CONTRIBUTING.md — contribution guide  
-- README.md — project documentation  
-- SPOCK_README.md — configuration system  
+- README.md — project documentation   
 - tests/techniques.md — testing techniques  
 - config.example.json — configuration template
+- /llm/* — LLM friendly code instructions for rag2f
