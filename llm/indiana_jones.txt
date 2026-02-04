@@ -100,6 +100,8 @@ result = indiana.execute_retrieve(query)  # items always populated
 
 ## Hooks
 
+Backends (clients, repositories, embedders) are typically initialized/registered during plugin activation (`activated` override). The actual retrieval/synthesis logic is then implemented via these hooks.
+
 ### Retrieve Hook
 
 ```python

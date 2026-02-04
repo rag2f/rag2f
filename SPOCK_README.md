@@ -91,11 +91,11 @@ asyncio.run(main())
 ```python
 from rag2f.core.morpheus.decorators import hook
 
-@hook("rag2f_bootstrap_embedders", priority=10)
+@hook("indiana_jones_retrieve", priority=10)
 def bootstrap_azure_embedder(embedders_registry, rag2f):
     config = rag2f.spock.get_plugin_config("azure_openai_embedder")
     # ... use config ...
-    return embedders_registry
+    return result
 ```
 
 #### In a Plugin Class

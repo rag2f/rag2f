@@ -356,16 +356,16 @@ def test_xfiles_with_mock_repo():
 ```
 tests/mocks/plugins/mock_plugin/
 ├── __init__.py
-├── plugin.toml
+├── plugin.json
 └── hooks.py
 ```
 
-```toml
-# plugin.toml
-[plugin]
-id = "mock_plugin"
-name = "Mock Plugin"
-version = "1.0.0"
+```json
+{
+    "name": "Mock Plugin",
+    "version": "1.0.0",
+    "description": "Test plugin used by pytest"
+}
 ```
 
 ```python

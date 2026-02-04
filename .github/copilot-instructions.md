@@ -45,21 +45,45 @@ If a feature can live as a **plugin**, it **must** be a **plugin** (not in core)
 ```python
 from rag2f.core.morpheus.decorators import hook
 
-@hook("rag2f_bootstrap_embedders", priority=10)
-def my_hook(embedders_registry, rag2f):
-    return embedders_registry
+@hook("handle_text_foreground", priority=10)
+def my_ingest_hook(done: bool, track_id: str, text: str, *, rag2f):
+    if done:
+        return done
+    # ingest/store...
+    return True
 
 @hook(priority=5)  # uses the function name as the hook id
 def my_hook_name(data, rag2f):
     return data
 ```
 
+**`@plugin` lifecycle overrides (activation/deactivation)**
+
+Use these to register embedders/repositories (there is no built-in `rag2f_bootstrap_*` hook).
+
+```python
+from rag2f.core.morpheus.decorators.plugin_decorator import plugin
+
+@plugin
+def activated(plugin, rag2f_instance):
+    config = rag2f_instance.spock.get_plugin_config(plugin.id) or {}
+    # register embedder/repository here
+    return
+
+@plugin
+def deactivated(plugin, rag2f_instance):
+    # optional cleanup
+    return
+```
+
 **Plugin structure**
 ```
 my_plugin/
 ├─ __init__.py
-├─ plugin.toml  # or pyproject.toml with [tool.rag2f.plugin]
+├─ plugin.json  # optional metadata (recommended)
+├─ pyproject.toml  # optional packaging metadata (standard [project])
 ├─ hooks.py     # functions decorated with @hook
+├─ plugin_overrides.py  # functions decorated with @plugin (activated/deactivated)
 └─ requirements.txt  # plugin-specific dependencies
 ```
 

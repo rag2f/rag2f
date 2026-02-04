@@ -77,30 +77,36 @@ Hooks execute in descending priority order (higher priority first):
 ```
 my_plugin/
 ├── __init__.py
-├── plugin.toml           # or pyproject.toml with [tool.rag2f.plugin]
+├── plugin.json           # Optional plugin metadata (recommended)
+├── pyproject.toml        # Optional packaging metadata (recommended for distributable plugins)
 ├── hooks.py              # Functions decorated with @hook
+├── plugin_overrides.py   # Optional lifecycle overrides via @plugin (activated/deactivated)
 ├── requirements.txt      # Plugin-specific dependencies (optional)
 └── nested/
     └── more_hooks.py     # Hooks in subdirectories are discovered
 ```
 
-### plugin.toml
+### plugin.json (recommended)
 
-```toml
-[plugin]
-id = "my_plugin"
-name = "My Plugin"
-version = "1.0.0"
+`plugin_id` is the plugin folder name. `plugin.json` is optional metadata.
+
+```json
+{
+    "name": "My Plugin",
+    "version": "1.0.0",
+    "description": "What this plugin does",
+    "keywords": ["rag2f", "plugin"],
+    "author": {"name": "Your Name", "email": "you@example.com"},
+    "urls": {"Repository": "https://example.com/repo"},
+    "license": "MIT",
+    "min_rag2f_version": "0.0.0",
+    "max_rag2f_version": "9.9.9"
+}
 ```
 
-### pyproject.toml Alternative
+### pyproject.toml (packaging metadata)
 
-```toml
-[tool.rag2f.plugin]
-id = "my_plugin"
-name = "My Plugin"
-version = "1.0.0"
-```
+RAG2F reads standard `[project]` metadata.
 
 ## Entry Point Registration
 
@@ -129,18 +135,30 @@ def get_plugin_path() -> str:
 | `handle_text_foreground` | Johnny5 | Process input |
 | `indiana_jones_retrieve` | IndianaJones | Retrieval |
 | `indiana_jones_synthesize` | IndianaJones | Synthesize response from retrieved items |
-| `rag2f_bootstrap_embedders` | OptimusPrime | Register embedders |
 
 ## Hook Implementation Examples
 
-### Bootstrap Hook (No Piped Value)
+### Plugin Lifecycle Override (Activation)
+
+There is no built-in `rag2f_bootstrap_*` hook. If a plugin needs to register
+embedders or repositories, do it in the plugin lifecycle override `activated`.
 
 ```python
-@hook("rag2f_bootstrap_embedders", priority=10)
-def register_my_embedder(*, rag2f):
-    config = rag2f.spock.get_plugin_config("my_embedder")
+from rag2f.core.morpheus.decorators.plugin_decorator import plugin
+
+@plugin
+def activated(plugin, rag2f_instance):
+    plugin_id = plugin.id  # ✅ use this in @plugin overrides
+    config = rag2f_instance.spock.get_plugin_config(plugin_id) or {}
+
+    # Example: register an embedder
     embedder = MyEmbedder(api_key=config.get("api_key"))
-    rag2f.optimus_prime.register("my_embedder", embedder)
+    # The registry key is chosen by the plugin (often a stable name or plugin_id).
+    # If you plan to use get_default(), set rag2f.embedder_default to this key.
+    rag2f_instance.optimus_prime.register(plugin_id, embedder)
+
+    # Example: register a repository
+    # rag2f_instance.xfiles.execute_register(f"{plugin_id}_repo", repo, meta={...})
 ```
 
 ### Processing Hook (Piped Value)
@@ -238,4 +256,8 @@ def hook_with_context(value, *, rag2f):
     config = rag2f.spock.get_plugin_config(plugin_id)
     
     return value
+
+Note:
+- Inside `@hook` functions, use `rag2f.morpheus.self_plugin_id()`.
+- Inside `@plugin` overrides (`activated`/`deactivated`), use `plugin.id`.
 ```

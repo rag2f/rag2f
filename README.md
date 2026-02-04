@@ -74,8 +74,8 @@ The names are constraints on design, not jokes. Registries and managers are the 
 
 Plugins are the primary extension mechanism. A plugin can provide:
 
-- Embedders (via OptimusPrime hooks)
-- Repositories (via XFiles hooks)
+- Embedders (registered during plugin activation into OptimusPrime)
+- Repositories (registered during plugin activation into XFiles)
 - Additional hook implementations that change behavior
 
 Entry points are the production path; filesystem plugins are a local dev path. The core never hardcodes a specific backend.
@@ -114,9 +114,16 @@ If a backend has powerful native operations, expose them. A repository can surfa
 from rag2f.core.xfiles import XFiles, QuerySpec, eq, and_
 
 xfiles = XFiles()
-xfiles.register("users_db", users_repo, meta={"type": "postgresql", "domain": "users"})
 
-repo = xfiles.get("users_db")
+reg = xfiles.execute_register(
+  "users_db",
+  users_repo,
+  meta={"type": "postgresql", "domain": "users"},
+)
+assert reg.is_ok()
+
+get_result = xfiles.execute_get("users_db")
+repo = get_result.repository
 query = QuerySpec(
     select=["id", "email"],
     where=and_(eq("status", "active"), eq("tier", "pro")),
@@ -135,7 +142,7 @@ client.execute("EXPLAIN ANALYZE SELECT ...")
 
 ## Embedders deep dive (OptimusPrime)
 
-OptimusPrime is the embedder registry. Embedders are contributed by plugins via hooks (for example, `rag2f_bootstrap_embedders`). The registry enforces protocol compliance and prevents accidental overrides.
+OptimusPrime is the embedder registry. Embedders are contributed by plugins during plugin activation (via the plugin lifecycle override `activated`). The registry enforces protocol compliance and prevents accidental overrides.
 
 The default embedder is selected via Spock configuration (`rag2f.embedder_default`). If only one embedder is registered, it becomes default automatically.
 
@@ -159,7 +166,7 @@ See `SPOCK_README.md` and `config.example.json` for concrete formats.
 A useful mental model is "registries + hooks":
 
 - Registries store and validate concrete implementations (embedders, repositories).
-- Hooks let plugins contribute those implementations.
+- Plugins contribute implementations during activation, and contribute behavior via hooks.
 - The core stays small and stable; complexity lives at the edges.
 
 This lets you build a RAG pipeline that fits your constraints without forcing other teams to adopt the same stack.

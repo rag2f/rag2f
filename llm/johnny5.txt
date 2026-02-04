@@ -85,6 +85,8 @@ result = johnny5.execute_handle_text_foreground("test")
 
 ## Plugin Implementation Example
 
+Note: plugins usually register required embedders/repositories during plugin activation (`activated` override). The `handle_text_foreground` hook then uses `rag2f.optimus_prime` and `rag2f.xfiles`.
+
 ```python
 # plugins/my_ingest_plugin/hooks.py
 from rag2f.core.morpheus.decorators import hook

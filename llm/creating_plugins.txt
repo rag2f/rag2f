@@ -7,8 +7,8 @@ Guide to building plugins that extend RAG2F functionality.
 RAG2F Core contains these modules: Johnny5, IndianaJones, OptimusPrime, XFiles. All modules connect to Morpheus (the hook system). Plugins extend the system by registering hooks with Morpheus.
 
 **Plugin types:**
-- **Embedder plugins** — register embedders via OptimusPrime hooks
-- **Repository plugins** — register vector DBs, SQL stores via XFiles hooks  
+- **Embedder plugins** — register embedders during plugin activation (OptimusPrime registry)
+- **Repository plugins** — register repositories during plugin activation (XFiles registry)
 - **Custom plugins** — extend any processing pipeline via hooks
 
 ## Minimal Plugin Structure
@@ -16,27 +16,24 @@ RAG2F Core contains these modules: Johnny5, IndianaJones, OptimusPrime, XFiles. 
 ```
 my_plugin/
 ├── __init__.py          # Required (can be empty)
-├── plugin.toml          # Plugin metadata
+├── plugin.json          # Optional plugin metadata (recommended)
+├── pyproject.toml       # Optional packaging metadata (recommended for distributable plugins)
+├── plugin_context.py    # Recommended: store plugin_id in ContextVar (template pattern)
 └── hooks.py             # Hook implementations
 ```
 
-### plugin.toml
+### plugin.json (recommended)
 
-```toml
-[plugin]
-id = "my_plugin"           # Unique identifier (required)
-name = "My Plugin"         # Display name
-version = "1.0.0"
-description = "What this plugin does"
-```
+`plugin_id` is the plugin folder name. `plugin.json` is optional metadata.
 
-### Alternative: pyproject.toml
-
-```toml
-[tool.rag2f.plugin]
-id = "my_plugin"
-name = "My Plugin"
-version = "1.0.0"
+```json
+{
+    "name": "My Plugin",
+    "version": "1.0.0",
+    "description": "What this plugin does",
+    "keywords": ["rag2f", "plugin"],
+    "author": {"name": "Your Name", "email": "you@example.com"}
+}
 ```
 
 ### hooks.py
@@ -60,17 +57,54 @@ def my_handler(done, track_id, text, *, rag2f):
 
 ## Hook Types
 
-### 1. Bootstrap Hooks (No Piped Value)
+### 1. Plugin Lifecycle Overrides (activated/deactivated)
 
-Called once during initialization. No return value piping.
+Registration of embedders and repositories is done in plugin lifecycle overrides,
+not via hooks.
 
 ```python
-@hook("rag2f_bootstrap_embedders", priority=10)
-def register_my_embedder(*, rag2f):
-    """Register embedder during bootstrap."""
-    config = rag2f.spock.get_plugin_config("my_plugin")
+from rag2f.core.morpheus.decorators.plugin_decorator import plugin
+
+from .plugin_context import set_plugin_id
+
+@plugin
+def activated(plugin, rag2f_instance):
+    plugin_id = plugin.id
+    set_plugin_id(plugin_id)
+    config = rag2f_instance.spock.get_plugin_config(plugin_id) or {}
+
+    # Example: register embedder
     embedder = MyEmbedder(api_key=config.get("api_key"))
-    rag2f.optimus_prime.register("my_embedder", embedder)
+    # Choose a stable registry key (often plugin_id). Ensure rag2f.embedder_default matches.
+    rag2f_instance.optimus_prime.register(plugin_id, embedder)
+
+@plugin
+def deactivated(plugin, rag2f_instance):
+    """Optional cleanup on deactivation."""
+    # Example: unregister embedder/repo if you want
+    # rag2f_instance.optimus_prime.unregister(plugin.id)
+    return
+```
+
+### Plugin context (`plugin_context.py`) and `plugin_id`
+
+The plugin template is expected to include a `plugin_context.py` module that stores the
+current `plugin_id` in a `ContextVar`.
+
+Why it matters:
+- In `@plugin` lifecycle overrides, you already have `plugin.id`.
+- In `@hook` functions you can compute the id via `rag2f.morpheus.self_plugin_id()`, but a
+    cached `ContextVar` is often simpler and avoids repeating that logic.
+
+Typical pattern:
+1. In `activated()`: call `set_plugin_id(plugin.id)`.
+2. In hooks: call `get_plugin_id(rag2f)` (falls back to `self_plugin_id()` if needed).
+
+This makes config access consistent:
+
+```python
+plugin_id = get_plugin_id(rag2f)
+config = rag2f.spock.get_plugin_config(plugin_id) or {}
 ```
 
 ### 2. Processing Hooks (Piped Value)
@@ -101,7 +135,7 @@ Transform data flowing through the pipeline.
 
 ```python
 @hook("indiana_jones_retrieve", priority=5)
-def enrich_results(result, query, k, *, rag2f):
+def enrich_results(result, query, k, return_mode, for_synthesize, *, rag2f):
     """Add extra metadata to retrieved items."""
     for item in result.items:
         item.extra["enriched_at"] = datetime.now().isoformat()
@@ -114,9 +148,8 @@ def enrich_results(result, query, k, *, rag2f):
 
 | Hook Name | Module | Purpose | Signature |
 |-----------|--------|---------|-----------|
-| `rag2f_bootstrap_embedders` | OptimusPrime | Register embedders | `(*, rag2f)` |
 | `get_id_input_text` | Johnny5 | Generate input ID | `(track_id, text, *, rag2f)` |
-| `check_duplicated_input_text` | Johnny5 | Check duplicate | `(is_dup, track_id, text, *, rag2f)` |
+| `check_duplicated_input_text` | Johnny5 | Check duplicate | `(duplicated, track_id, text, *, rag2f)` |
 | `handle_text_foreground` | Johnny5 | Process input | `(done, track_id, text, *, rag2f)` |
 | `indiana_jones_retrieve` | IndianaJones | Retrieval | `(result, query, k, return_mode, for_synthesize, *, rag2f)` |
 | `indiana_jones_synthesize` | IndianaJones | Synthesize | `(result, retrieve_result, return_mode, kwargs, *, rag2f)` |
@@ -128,18 +161,20 @@ def enrich_results(result, query, k, *, rag2f):
 ```
 rag2f_qdrant_plugin/
 ├── __init__.py
-├── plugin.toml
+├── plugin.json
+├── plugin_overrides.py
 ├── hooks.py
 └── requirements.txt
 ```
 
-### plugin.toml
+### plugin.json
 
-```toml
-[plugin]
-id = "rag2f_qdrant"
-name = "Qdrant Vector Store"
-version = "1.0.0"
+```json
+{
+    "name": "Qdrant Vector Store",
+    "version": "1.0.0",
+    "description": "Qdrant-backed vector repository for rag2f"
+}
 ```
 
 ### requirements.txt
@@ -148,7 +183,51 @@ version = "1.0.0"
 qdrant-client>=1.7.0
 ```
 
-### hooks.py
+### plugin_overrides.py (registration during activation)
+
+```python
+from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, VectorParams
+
+from rag2f.core.morpheus.decorators.plugin_decorator import plugin
+
+from .hooks import QdrantRepository
+
+
+@plugin
+def activated(plugin, rag2f_instance):
+    """Register Qdrant repository when the plugin is activated."""
+    plugin_id = plugin.id
+    config = rag2f_instance.spock.get_plugin_config(plugin_id) or {}
+    if not config:
+        return
+
+    client = QdrantClient(
+        host=config.get("host", "localhost"),
+        port=config.get("port", 6333),
+    )
+
+    collection = config.get("collection", "documents")
+    vector_size = config.get("vector_size", 1536)
+
+    # Ensure collection exists
+    try:
+        client.get_collection(collection)
+    except Exception:
+        client.create_collection(
+            collection_name=collection,
+            vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
+        )
+
+    repo = QdrantRepository(client, collection, vector_size)
+    rag2f_instance.xfiles.execute_register(
+        "qdrant",
+        repo,
+        meta={"type": "vector", "backend": "qdrant", "plugin": plugin_id},
+    )
+```
+
+### hooks.py (pipelines)
 
 ```python
 """Qdrant vector store plugin for RAG2F."""
@@ -195,42 +274,6 @@ class QdrantRepository:
         )
 
 
-@hook("rag2f_bootstrap_embedders", priority=5)
-def setup_qdrant(*, rag2f):
-    """Register Qdrant repository during bootstrap."""
-    config = rag2f.spock.get_plugin_config("rag2f_qdrant")
-    
-    if not config:
-        return  # Plugin not configured
-    
-    client = QdrantClient(
-        host=config.get("host", "localhost"),
-        port=config.get("port", 6333)
-    )
-    
-    collection = config.get("collection", "documents")
-    vector_size = config.get("vector_size", 1536)
-    
-    # Ensure collection exists
-    try:
-        client.get_collection(collection)
-    except Exception:
-        client.create_collection(
-            collection_name=collection,
-            vectors_config=VectorParams(
-                size=vector_size,
-                distance=Distance.COSINE
-            )
-        )
-    
-    repo = QdrantRepository(client, collection, vector_size)
-    rag2f.xfiles.execute_register(
-        "qdrant",
-        repo,
-        meta={"type": "vector", "backend": "qdrant"}
-    )
-
-
 @hook("handle_text_foreground", priority=5)
 def store_in_qdrant(done, track_id, text, *, rag2f):
     """Store text embeddings in Qdrant."""
@@ -255,7 +298,7 @@ def store_in_qdrant(done, track_id, text, *, rag2f):
 
 
 @hook("indiana_jones_retrieve", priority=10)
-def retrieve_from_qdrant(result, query, k, *, rag2f):
+def retrieve_from_qdrant(result, query, k, return_mode, for_synthesize, *, rag2f):
     """Retrieve from Qdrant."""
     from rag2f.core.dto.indiana_jones_dto import RetrieveResult, RetrievedItem
     
@@ -306,16 +349,15 @@ def retrieve_from_qdrant(result, query, k, *, rag2f):
 ### Accessing Config in Hooks
 
 ```python
-@hook("rag2f_bootstrap_embedders", priority=5)
-def setup(*, rag2f):
-    # Get entire plugin config
-    config = rag2f.spock.get_plugin_config("my_plugin")
-    
-    # Get specific key
-    api_key = rag2f.spock.get_plugin_config("my_plugin", "api_key")
-    
-    # Get nested key
-    timeout = rag2f.spock.get_plugin_config("my_plugin", "http", "timeout")
+from rag2f.core.morpheus.decorators import hook
+
+@hook("handle_text_foreground", priority=5)
+def my_hook(done, track_id, text, *, rag2f):
+    plugin_id = rag2f.morpheus.self_plugin_id()
+    config = rag2f.spock.get_plugin_config(plugin_id) or {}
+    api_key = config.get("api_key")
+    timeout = (config.get("http") or {}).get("timeout")
+    return done
 ```
 
 ---

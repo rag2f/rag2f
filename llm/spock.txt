@@ -122,15 +122,15 @@ value = spock.get_plugin_config("my_plugin", "missing", default="fallback")
 ### Plugin Reading Config
 
 ```python
-from rag2f.core.morpheus.decorators import hook
+from rag2f.core.morpheus.decorators.plugin_decorator import plugin
 
-@hook("rag2f_bootstrap_embedders", priority=10)
-def register_embedder(*, rag2f):
-    # Get plugin config
-    config = rag2f.spock.get_plugin_config("azure_openai_embedder")
+@plugin
+def activated(plugin, rag2f_instance):
+  # Get plugin config (key == plugin.id)
+  config = rag2f_instance.spock.get_plugin_config(plugin.id) or {}
     
     # Required: use ENV for secrets
-    api_key = rag2f.spock.get_plugin_config("azure_openai_embedder", "api_key")
+    api_key = config.get("api_key")
     if not api_key:
         raise ValueError("API key not configured")
     
@@ -140,7 +140,8 @@ def register_embedder(*, rag2f):
         deployment=config.get("deployment_name"),
     )
     
-    rag2f.optimus_prime.register("azure_openai", embedder)
+    # Register under a stable key (must match rag2f.embedder_default)
+    rag2f_instance.optimus_prime.register("azure_openai", embedder)
 ```
 
 ## Best Practices
@@ -157,9 +158,11 @@ export RAG2F__PLUGINS__MY_PLUGIN__API_KEY=sk-xxx
 ### Config Validation in Plugins
 
 ```python
-@hook("rag2f_bootstrap_embedders", priority=10)
-def setup_embedder(*, rag2f):
-    config = rag2f.spock.get_plugin_config("my_embedder")
+from rag2f.core.morpheus.decorators.plugin_decorator import plugin
+
+@plugin
+def activated(plugin, rag2f_instance):
+  config = rag2f_instance.spock.get_plugin_config(plugin.id) or {}
     
     # Validate required config
     required = ["endpoint", "deployment"]
