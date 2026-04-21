@@ -6,7 +6,8 @@ Manages the registry of embedding providers for vector operations.
 
 ## Core Concept
 
-OptimusPrime is a registry, not an embedder. Embedders are contributed by plugins via hooks.
+OptimusPrime is a registry, not an embedder. Embedders are contributed by plugins during
+plugin activation (via Morpheus plugin lifecycle overrides).
 
 ```python
 # Get default embedder
@@ -118,22 +119,24 @@ class MyEmbedder:
         return vector
 ```
 
-### Plugin Bootstrap Hook
+### Registering from a Plugin (activated override)
 
 ```python
-from rag2f.core.morpheus.decorators import hook
+from rag2f.core.morpheus.decorators.plugin_decorator import plugin
 
-@hook("rag2f_bootstrap_embedders", priority=10)
-def register_my_embedder(*, rag2f):
-    """Bootstrap hook to register embedder."""
-    config = rag2f.spock.get_plugin_config("my_embedder")
+@plugin
+def activated(plugin, rag2f_instance):
+    """Register an embedder when the plugin is activated."""
+    plugin_id = plugin.id
+    config = rag2f_instance.spock.get_plugin_config(plugin_id) or {}
     
     embedder = MyEmbedder(
         api_key=config.get("api_key"),
         model=config.get("model", "default-model")
     )
     
-    rag2f.optimus_prime.register("my_embedder", embedder)
+    # Choose the registry key and set rag2f.embedder_default accordingly.
+    rag2f_instance.optimus_prime.register("azure_openai", embedder)
 ```
 
 ### Azure OpenAI Example

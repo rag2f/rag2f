@@ -8,6 +8,21 @@ Manages a registry of heterogeneous repositories (SQL, vector DBs, document stor
 
 XFiles is a registry that holds repository instances. Repositories implement protocols declaring their capabilities.
 
+Repositories are typically registered by plugins during activation (plugin lifecycle override `activated`), not via hooks.
+
+```python
+from rag2f.core.morpheus.decorators.plugin_decorator import plugin
+
+@plugin
+def activated(plugin, rag2f_instance):
+    repo = MyRepository(...)
+    rag2f_instance.xfiles.execute_register(
+        f"{plugin.id}_repo",
+        repo,
+        meta={"type": "sql", "domain": "users", "plugin": plugin.id},
+    )
+```
+
 ```python
 # Register
 result = rag2f.xfiles.execute_register("users_db", postgres_repo, meta={"type": "postgresql"})

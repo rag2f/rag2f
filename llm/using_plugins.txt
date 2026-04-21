@@ -50,7 +50,8 @@ your_project/
 └── plugins/
     ├── my_custom_plugin/
     │   ├── __init__.py
-    │   ├── plugin.toml
+    │   ├── plugin.json
+    │   ├── plugin_context.py
     │   └── hooks.py
     └── another_plugin/
         └── ...
@@ -174,20 +175,48 @@ When `RAG2F.create()` is called:
 1. **Initialize core modules** — Spock, Johnny5, IndianaJones, OptimusPrime, XFiles, Morpheus
 2. **Load configuration** — JSON file first, then ENV overrides
 3. **morpheus.find_plugins()** discovers plugins:
-   - Load from entry points (pip packages) → `plugin.activate()` for each
-   - Load from filesystem (`plugins/`) → `plugin.activate()` for each (skip if ID already exists)
+  - Load from entry points (pip packages) → `plugin.activate()` for each
+  - Load from filesystem (`plugins/`) → `plugin.activate()` for each (skip if ID already exists)
+  - During `plugin.activate()`, Morpheus loads hooks/overrides and runs the plugin lifecycle override `activated` if present
 4. **refresh_caches()** — Index all hooks by name, sort by priority (higher first)
-5. **Execute bootstrap hooks** — e.g., `rag2f_bootstrap_embedders` to register embedders
 
 ---
 
 ## Using Plugin-Provided Features
 
-### Embedders
+## Plugin context and `plugin_id`
 
-Plugins register embedders via `rag2f_bootstrap_embedders` hook:
+The recommended plugin template includes a `plugin_context.py` module that stores the
+current `plugin_id` in a `ContextVar`.
+
+Rules of thumb:
+- Inside `@plugin` overrides (`activated`/`deactivated`), use `plugin.id`.
+- Inside `@hook` functions, either:
+  - use `rag2f.morpheus.self_plugin_id()`, or
+  - use `get_plugin_id(rag2f)` from your `plugin_context.py` (preferred in templates).
+
+This lets a plugin load its own config reliably:
 
 ```python
+plugin_id = get_plugin_id(rag2f)
+config = rag2f.spock.get_plugin_config(plugin_id) or {}
+```
+
+### Embedders
+
+Plugins register embedders during plugin activation (lifecycle override `activated`):
+
+```python
+# plugins/azure_openai_embedder/plugin_overrides.py
+from rag2f.core.morpheus.decorators.plugin_decorator import plugin
+
+@plugin
+def activated(plugin, rag2f_instance):
+    config = rag2f_instance.spock.get_plugin_config(plugin.id) or {}
+    embedder = AzureOpenAIEmbedder(config)
+  # Register under a stable key (must match rag2f.embedder_default)
+  rag2f_instance.optimus_prime.register("azure_openai", embedder)
+
 # Get the default embedder (configured via rag2f.embedder_default)
 embedder = rag2f.optimus_prime.get_default()
 vector = embedder.getEmbedding("Hello world")
@@ -200,9 +229,21 @@ if azure:
 
 ### Repositories
 
-Plugins register repositories via bootstrap hooks:
+Plugins register repositories during plugin activation (lifecycle override `activated`):
 
 ```python
+# plugins/qdrant_store/plugin_overrides.py
+from rag2f.core.morpheus.decorators.plugin_decorator import plugin
+
+@plugin
+def activated(plugin, rag2f_instance):
+    repo = QdrantRepository(...)
+    rag2f_instance.xfiles.execute_register(
+        "qdrant",
+        repo,
+        meta={"type": "vector", "backend": "qdrant", "plugin": plugin.id},
+    )
+
 # Get repository
 result = rag2f.xfiles.execute_get("qdrant")
 if result.is_ok() and result.repository:
@@ -282,7 +323,7 @@ my_rag_app/
 └── plugins/
     └── my_custom_processor/
         ├── __init__.py
-        ├── plugin.toml
+        ├── plugin.json
         └── hooks.py
 ```
 

@@ -219,8 +219,8 @@ RAG2F is **plugin-first**: the core is minimal, functionality comes from plugins
 
 ### What Plugins Provide
 
-- **Embedders** — registered via OptimusPrime hooks
-- **Repositories** — registered via XFiles hooks  
+- **Embedders** — registered during plugin activation (OptimusPrime registry)
+- **Repositories** — registered during plugin activation (XFiles registry)
 - **Processing logic** — hooks for Johnny5, IndianaJones pipelines
 - **Custom hooks** — extend any part of the system
 

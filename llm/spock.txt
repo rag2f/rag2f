@@ -122,15 +122,15 @@ value = spock.get_plugin_config("my_plugin", "missing", default="fallback")
 ### Plugin Reading Config
 
 ```python
-from rag2f.core.morpheus.decorators import hook
+from rag2f.core.morpheus.decorators.plugin_decorator import plugin
 
-@hook("rag2f_bootstrap_embedders", priority=10)
-def register_embedder(*, rag2f):
-    # Get plugin config
-    config = rag2f.spock.get_plugin_config("azure_openai_embedder")
+@plugin
+def activated(plugin, rag2f_instance):
+  # Get plugin config (key == plugin.id)
+  config = rag2f_instance.spock.get_plugin_config(plugin.id) or {}
     
     # Required: use ENV for secrets
-    api_key = rag2f.spock.get_plugin_config("azure_openai_embedder", "api_key")
+    api_key = config.get("api_key")
     if not api_key:
         raise ValueError("API key not configured")
     
@@ -140,7 +140,8 @@ def register_embedder(*, rag2f):
         deployment=config.get("deployment_name"),
     )
     
-    rag2f.optimus_prime.register("azure_openai", embedder)
+    # Register under a stable key (must match rag2f.embedder_default)
+    rag2f_instance.optimus_prime.register("azure_openai", embedder)
 ```
 
 ## Best Practices
@@ -157,9 +158,11 @@ export RAG2F__PLUGINS__MY_PLUGIN__API_KEY=sk-xxx
 ### Config Validation in Plugins
 
 ```python
-@hook("rag2f_bootstrap_embedders", priority=10)
-def setup_embedder(*, rag2f):
-    config = rag2f.spock.get_plugin_config("my_embedder")
+from rag2f.core.morpheus.decorators.plugin_decorator import plugin
+
+@plugin
+def activated(plugin, rag2f_instance):
+  config = rag2f_instance.spock.get_plugin_config(plugin.id) or {}
     
     # Validate required config
     required = ["endpoint", "deployment"]
@@ -253,3 +256,78 @@ class Spock:
     def default_config() -> dict[str, Any]:
         """Return default config structure: {'rag2f': {}, 'plugins': {}}"""
 ```
+
+---
+
+## Key Features (from SPOCK_README.md)
+
+- **Unified config**: Core + plugin settings in one place
+- **Multiple sources**: JSON files and/or environment variables
+- **Priority model**: ENV variables override JSON values
+- **Instance-based**: Each RAG2F instance has isolated configuration (no global state)
+- **Type inference**: ENV values are automatically parsed as int/float/bool/JSON when possible
+- **Safe for testing**: No global state makes tests isolated and reproducible
+
+---
+
+## Type Inference in Environment Variables
+
+ENV values are automatically parsed:
+
+```bash
+# int
+export RAG2F__PLUGINS__MY_PLUGIN__SIZE=1536
+
+# float
+export RAG2F__PLUGINS__MY_PLUGIN__TIMEOUT=30.0
+
+# bool
+export RAG2F__PLUGINS__MY_PLUGIN__ENABLED=true
+
+# JSON object
+export RAG2F__PLUGINS__MY_PLUGIN__HTTP='{"timeout": 30, "retries": 2}'
+
+# JSON array
+export RAG2F__PLUGINS__MY_PLUGIN__TAGS='["a", "b"]'
+
+# string (default)
+export RAG2F__PLUGINS__MY_PLUGIN__API_KEY=sk-xxx
+```
+
+The parser tries int → float → bool → JSON → string in that order.
+
+---
+
+## Troubleshooting
+
+- Check if Spock is loaded: `rag2f.spock.is_loaded`
+- Verify config file path: `rag2f.spock.config_path`
+- Inspect environment variables: `env | grep RAG2F__`
+- Enable debug logging: `logging.basicConfig(level=logging.DEBUG)`
+
+---
+
+## Optional
+## Migration from Single-File Plugin Config
+
+**Before** (plugin reads its own config file):
+
+```python
+embedder = AzureOpenAIEmbedder(config_file="plugins/azure_openai_embedder/config.json")
+```
+
+**After** (plugin reads centralized Spock via RAG2F instance):
+
+```python
+@plugin
+def activated(plugin, rag2f_instance):
+    config = rag2f_instance.spock.get_plugin_config(plugin.id) or {}
+    embedder = AzureOpenAIEmbedder(config)
+    rag2f_instance.optimus_prime.register(plugin.id, embedder)
+```
+
+Move plugin-specific config under `plugins.<plugin_id>` in the main `config.json`, or set via environment variables. This provides:
+- Single source of truth for all configuration
+- Easier testing (mock Spock or pass config dict to `RAG2F.create()`)
+- No file I/O from plugins
+- Consistent ENV override semantics
