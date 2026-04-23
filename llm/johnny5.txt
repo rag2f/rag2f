@@ -108,6 +108,17 @@ def store_in_vector_db(done, track_id, text, *, rag2f):
     return True  # Mark as handled
 ```
 
+## Track ID and FluxCapacitor
+
+`track_id` is the public correlation key returned by Johnny5.
+
+If a plugin decides to start an async FluxCapacitor workflow, keep that decision inside the plugin:
+- generate the public identifier via `get_id_input_text`
+- use that `track_id` in your payload or metadata
+- if you need a mapping from public `track_id` to internal Flux task ids, keep that mapping in plugin-managed storage
+
+This keeps the Johnny5 contract stable for external callers.
+
 ---
 
 ## Optional: Testing Johnny5

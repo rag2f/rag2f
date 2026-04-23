@@ -10,18 +10,31 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
-from rag2f.core.flux_capacitor.errors import MissingQueueError, MissingStoreError
+from rag2f.core.flux_capacitor.errors import (
+    HookResolutionError,
+    MissingQueueError,
+    MissingStoreError,
+)
 from rag2f.core.flux_capacitor.queue import BaseTaskQueue
 from rag2f.core.flux_capacitor.store import BaseTaskStore
-from rag2f.core.flux_capacitor.task_models import PayloadRef, Task, TaskChildRequest, TaskContext
+from rag2f.core.flux_capacitor.task_models import (
+    PayloadRef,
+    Task,
+    TaskChildRequest,
+    TaskContext,
+    TaskEnvelope,
+    TaskStatusView,
+)
 
 logger = logging.getLogger(__name__)
 
 
 RAG2F_TASK_STORE_DEFAULT_KEY = "task_store_default"
 RAG2F_TASK_QUEUE_DEFAULT_KEY = "task_queue_default"
+RAG2F_TASK_DEFAULT_HOOK_KEY = "task_default_hook"
 
 
 @dataclass(slots=True)
@@ -30,6 +43,7 @@ class FluxCapacitorConfig:
 
     default_store: str | None = None
     default_queue: str | None = None
+    default_hook: str | None = None
 
     @classmethod
     def from_spock(cls, spock: Any | None) -> FluxCapacitorConfig:
@@ -37,11 +51,14 @@ class FluxCapacitorConfig:
             return cls()
         store = spock.get_rag2f_config(RAG2F_TASK_STORE_DEFAULT_KEY)
         queue = spock.get_rag2f_config(RAG2F_TASK_QUEUE_DEFAULT_KEY)
+        default_hook = spock.get_rag2f_config(RAG2F_TASK_DEFAULT_HOOK_KEY)
         if isinstance(store, str):
             store = store.strip() or None
         if isinstance(queue, str):
             queue = queue.strip() or None
-        return cls(default_store=store, default_queue=queue)
+        if isinstance(default_hook, str):
+            default_hook = default_hook.strip() or None
+        return cls(default_store=store, default_queue=queue, default_hook=default_hook)
 
 
 class FluxCapacitor:
@@ -164,42 +181,133 @@ class FluxCapacitor:
         self,
         *,
         plugin_id: str,
-        hook: str,
+        hook: str | None = None,
         payload_ref: dict[str, Any] | PayloadRef | None,
         parent_id: str | None = None,
     ) -> str:
         store = self.get_store()
-        queue = self.get_queue()
         task_id = str(uuid.uuid4())
-        normalized_payload = payload_ref
-        if isinstance(payload_ref, dict):
-            normalized_payload = PayloadRef.from_mapping(payload_ref)
+        resolved_hook = self._resolve_task_hook(plugin_id=plugin_id, hook=hook)
+        normalized_payload = self._normalize_payload(payload_ref)
+        root_id = self._resolve_root_id(parent_id=parent_id, task_id=task_id)
         task = Task(
             id=task_id,
             plugin_id=plugin_id,
-            hook=hook,
+            hook=resolved_hook,
             payload_ref=normalized_payload,
             parent_id=parent_id,
+            root_id=root_id,
         )
         store.create_task(task)
-        queue.push(task.id)
+        self._publish_task(task)
         return task.id
 
-    def run_once(self) -> bool:
+    def reserve(self, *, worker_id: str) -> TaskEnvelope | None:
         queue = self.get_queue()
         store = self.get_store()
-        task_id = queue.pop()
-        if task_id is None:
-            return False
+        envelope = queue.reserve(worker_id=worker_id)
+        if envelope is None:
+            return None
 
+        task = store.get_task(envelope.task_id)
+        if task is None:
+            logger.error("Task '%s' missing from store; dropping.", envelope.task_id)
+            if envelope.reservation_ref:
+                queue.ack(envelope.reservation_ref)
+            return None
+
+        store.mark_reserved(
+            task.id,
+            worker_id=worker_id,
+            reservation_ref=envelope.reservation_ref,
+        )
+        refreshed_task = store.get_task(task.id)
+        if refreshed_task is None:
+            return envelope
+        return refreshed_task.to_envelope()
+
+    def complete(self, task_id: str, *, reservation_ref: str | None = None) -> None:
+        store = self.get_store()
+        queue = self.get_queue()
+        task = store.get_task(task_id)
+        effective_reservation_ref = reservation_ref or (task.reservation_ref if task else None)
+        store.mark_completed(task_id)
+        if effective_reservation_ref:
+            queue.ack(effective_reservation_ref)
+
+    def fail(
+        self,
+        task_id: str,
+        *,
+        error_msg: str,
+        reservation_ref: str | None = None,
+    ) -> None:
+        store = self.get_store()
+        queue = self.get_queue()
+        task = store.get_task(task_id)
+        effective_reservation_ref = reservation_ref or (task.reservation_ref if task else None)
+        store.mark_failed(task_id, error_msg=error_msg)
+        if effective_reservation_ref:
+            queue.ack(effective_reservation_ref)
+
+    def retry(
+        self,
+        task_id: str,
+        *,
+        error_msg: str,
+        retry_at: datetime | None = None,
+        reservation_ref: str | None = None,
+    ) -> None:
+        store = self.get_store()
+        queue = self.get_queue()
         task = store.get_task(task_id)
         if task is None:
-            logger.error("Task '%s' missing from store; dropping.", task_id)
-            return True
+            raise ValueError(f"Unknown task: {task_id}")
+
+        effective_reservation_ref = reservation_ref or task.reservation_ref
+        store.mark_retry(task_id, error_msg=error_msg)
+        if effective_reservation_ref:
+            queue.release(effective_reservation_ref, retry_at=retry_at)
+            return
+
+        refreshed_task = store.get_task(task_id)
+        if refreshed_task is not None:
+            self._publish_task(refreshed_task, available_at=retry_at)
+
+    def get_status(self, task_id: str, *, include_descendants: bool = False) -> TaskStatusView:
+        store = self.get_store()
+        return store.get_status(task_id, include_descendants=include_descendants)
+
+    def find_recoverable_tasks(self) -> list[Task]:
+        """Return unfinished tasks that are neither queued nor reserved."""
+        store = self.get_store()
+        queue = self.get_queue()
+        pending_ids = queue.pending_task_ids()
+        reserved_ids = queue.reserved_task_ids()
+        return [
+            task
+            for task in store.list_unfinished_tasks()
+            if task.id not in pending_ids
+            and task.id not in reserved_ids
+            and task.reservation_ref is None
+        ]
+
+    def run_once(self, *, worker_id: str = "flux-worker") -> bool:
+        store = self.get_store()
+        envelope = self.reserve(worker_id=worker_id)
+        if envelope is None:
+            return False
+
+        task = store.get_task(envelope.task_id)
+        if task is None:
+            logger.error("Task '%s' missing from store after reservation.", envelope.task_id)
+            return False
 
         hook = self._morpheus.resolve_hook(task.plugin_id, task.hook)
         if hook is None:
-            store.mark_error(task.id, "Hook not found")
+            self.fail(
+                task.id, error_msg="Hook not found", reservation_ref=envelope.reservation_ref
+            )
             logger.error("Hook '%s' not found for plugin '%s'", task.hook, task.plugin_id)
             return True
 
@@ -209,19 +317,16 @@ class FluxCapacitor:
             self._invoke_hook(hook.function, task, context)
             children = self._collect_children(task, context)
             for child in children:
-                child_task = Task(
-                    id=str(uuid.uuid4()),
+                self.enqueue(
                     plugin_id=child.plugin_id or task.plugin_id,
                     hook=child.hook,
-                    payload_ref=PayloadRef.from_mapping(child.payload_ref),
+                    payload_ref=child.payload_ref,
                     parent_id=task.id,
                 )
-                store.create_task(child_task)
-                queue.push(child_task.id)
-            store.mark_done(task.id)
+            self.complete(task.id, reservation_ref=envelope.reservation_ref)
         except Exception as exc:
             logger.exception("Task hook failed: %s", task.id)
-            store.mark_error(task.id, str(exc))
+            self.fail(task.id, error_msg=str(exc), reservation_ref=envelope.reservation_ref)
         return True
 
     def worker_loop(
@@ -240,18 +345,8 @@ class FluxCapacitor:
                 time.sleep(sleep_seconds)
 
     def is_tree_done(self, root_task_id: str) -> bool:
-        store = self.get_store()
-        root = store.get_task(root_task_id)
-        if root is None:
-            return False
-
-        def _walk(task: Task) -> bool:
-            if task.finished_at is None or task.error is not None:
-                return False
-            children = store.list_children(task.id)
-            return all(_walk(child) for child in children)
-
-        return _walk(root)
+        status = self.get_status(root_task_id, include_descendants=True)
+        return status.exists and status.tree_completed
 
     def _invoke_hook(self, handler: Any, task: Task, context: TaskContext) -> None:
         payload_ref = task.payload_mapping()
@@ -281,6 +376,37 @@ class FluxCapacitor:
                 child.plugin_id = task.plugin_id
             normalized.append(child)
         return normalized
+
+    def _normalize_payload(
+        self, payload_ref: dict[str, Any] | PayloadRef | None
+    ) -> PayloadRef | dict[str, Any] | None:
+        if isinstance(payload_ref, dict):
+            return PayloadRef.from_mapping(payload_ref)
+        return payload_ref
+
+    def _resolve_root_id(self, *, parent_id: str | None, task_id: str) -> str:
+        if parent_id is None:
+            return task_id
+        parent = self.get_store().get_task(parent_id)
+        if parent is None:
+            raise ValueError(f"Parent task '{parent_id}' not found")
+        return parent.root_id or parent.id
+
+    def _resolve_task_hook(self, *, plugin_id: str, hook: str | None) -> str:
+        resolved_hook = hook or self._config.default_hook or "task_default"
+        if self._morpheus.resolve_hook(plugin_id, resolved_hook) is None:
+            raise HookResolutionError(f"Hook '{resolved_hook}' not found for plugin '{plugin_id}'")
+        return resolved_hook
+
+    def _publish_task(self, task: Task, *, available_at: datetime | None = None) -> None:
+        queue = self.get_queue()
+        envelope = task.to_envelope()
+        envelope.available_at = available_at
+        queue_ref = queue.publish(envelope)
+        if queue_ref is not None:
+            stored_task = self.get_store().get_task(task.id)
+            if stored_task is not None:
+                stored_task.queue_ref = queue_ref
 
 
 TaskManager = FluxCapacitor

@@ -154,6 +154,16 @@ def enrich_results(result, query, k, return_mode, for_synthesize, *, rag2f):
 | `indiana_jones_retrieve` | IndianaJones | Retrieval | `(result, query, k, return_mode, for_synthesize, *, rag2f)` |
 | `indiana_jones_synthesize` | IndianaJones | Synthesize | `(result, retrieve_result, return_mode, kwargs, *, rag2f)` |
 
+## Johnny5 and FluxCapacitor
+
+If a plugin starts a FluxCapacitor workflow from Johnny5, keep `track_id` as the public identifier.
+
+- generate `track_id` in `get_id_input_text`
+- process or schedule work in `handle_text_foreground`
+- if external callers must ask for async status later, keep the plugin-specific mapping from `track_id` to any internal Flux task ids
+
+This keeps the Johnny5 API stable and avoids leaking internal workflow ids into the public contract.
+
 ---
 
 ## Complete Plugin Example: Vector Store

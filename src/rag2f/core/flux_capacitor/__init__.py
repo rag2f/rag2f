@@ -12,8 +12,11 @@ from rag2f.core.flux_capacitor.store import BaseTaskStore, InMemoryTaskStore
 from rag2f.core.flux_capacitor.task_models import (
     PayloadRef,
     Task,
+    TaskBackendCapabilities,
     TaskChildRequest,
     TaskContext,
+    TaskEnvelope,
+    TaskStatusView,
 )
 
 __all__ = [
@@ -28,7 +31,10 @@ __all__ = [
     "MissingStoreError",
     "PayloadRef",
     "Task",
+    "TaskBackendCapabilities",
     "TaskChildRequest",
     "TaskContext",
+    "TaskEnvelope",
+    "TaskStatusView",
     "TaskManager",
 ]
