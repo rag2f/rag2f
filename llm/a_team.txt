@@ -1,0 +1,413 @@
+# ATeam — Agent Registry and Prompt Orchestration
+
+Guide for code agents that need to understand or extend the ATeam manager.
+
+ATeam is the RAG2F manager responsible for:
+- registering agent adapters from plugins
+- resolving per-plugin or global default agents
+- building prompts through Morpheus hooks
+- executing agents through a minimal adapter contract
+- exposing raw provider objects when a plugin needs provider-specific APIs
+
+The runtime aliases are:
+- `rag2f.a_team` — preferred public name
+- `rag2f.agent_manager` — compatibility alias
+
+---
+
+## Mental Model
+
+ATeam is intentionally small.
+
+The core does **not** know about LangChain, OpenAI Agents, semantic routers, or any other SDK.
+Those integrations must stay in plugins.
+
+The core only coordinates:
+1. agent registration
+2. default resolution
+3. prompt assembly
+4. sync / async execution
+5. normalized result wrapping
+
+When implementing an agent plugin, keep this separation strict:
+- **core** = orchestration and contracts
+- **plugin** = provider SDK, custom logic, raw objects, provider-specific options
+
+---
+
+## Core API
+
+### Manager methods
+
+```python
+rag2f.a_team.register(key, adapter, plugin_id=..., raw=None, metadata=None, is_default=False)
+rag2f.a_team.get(key)
+rag2f.a_team.get_raw(key)
+rag2f.a_team.get_default(plugin_id=None)
+rag2f.a_team.has(key)
+rag2f.a_team.list_keys()
+rag2f.a_team.unregister(key)
+
+rag2f.a_team.execute_run(request, agent_key=None)
+await rag2f.a_team.execute_run_async(request, agent_key=None)
+```
+
+### Request / result DTOs
+
+```python
+from rag2f.core.dto import AgentRunRequest, AgentRunResult
+
+request = AgentRunRequest(
+    input="Draft release notes",
+    plugin_id="my_agent_plugin",
+    purpose="draft",
+    caller="my.module",
+    caller_plugin_id="my_agent_plugin",
+    caller_hook="my_orchestrator_hook",
+    prompt_version="v1",
+    params={"audience": "engineering"},
+)
+
+result = rag2f.a_team.execute_run(request)
+```
+
+Important fields:
+- `input` — base user input or seed text
+- `agent_key` — explicit agent selection; wins over defaults
+- `plugin_id` — plugin scope for default resolution
+- `purpose` — semantic use case, such as `draft`, `review`, `route`, `summarize`
+- `caller` / `caller_plugin_id` / `caller_hook` — tracing and prompt-hook context
+- `prompt_version` — optional prompt variant identifier
+- `params` — extra hook-visible routing information
+
+`AgentRunResult` contains:
+- `agent_key`
+- `plugin_id`
+- `output`
+- `prompt`
+- `raw_response`
+- `metadata`
+
+---
+
+## Adapter Contract
+
+Plugins must register objects implementing the `AgentAdapter` protocol.
+
+```python
+from rag2f.core.protocols import AgentAdapter
+
+
+class MyAgentAdapter:
+    @property
+    def raw(self):
+        return self._provider_agent
+
+    @property
+    def metadata(self) -> dict[str, str]:
+        return {"provider": "my_sdk", "mode": "draft"}
+
+    def run(self, request, *, rag2f):
+        prompt = request.prompt.text
+        response = self._provider_agent.invoke(prompt)
+        return response
+
+    async def run_async(self, request, *, rag2f):
+        prompt = request.prompt.text
+        response = await self._provider_agent.invoke_async(prompt)
+        return response
+```
+
+Guidelines:
+- `raw` should expose the original provider object when useful
+- `metadata` should stay lightweight and serializable
+- `run()` and `run_async()` must accept `request` plus `rag2f`
+- return a plain provider response or an `AgentRunResult`
+
+If the adapter returns a plain object, ATeam wraps it into `AgentRunResult.success(...)`.
+
+---
+
+## Default Resolution Rules
+
+ATeam resolves the effective agent in this order:
+
+1. explicit `agent_key` passed to `execute_run(...)`
+2. plugin-scoped default from Spock: `plugins.<plugin_id>.default_agent`
+3. plugin-scoped default registered with `is_default=True`
+4. global default from Spock: `rag2f.a_team_default`
+5. error
+
+Examples:
+
+```json
+{
+  "rag2f": {
+    "a_team_default": "writer_plugin.default_writer"
+  },
+  "plugins": {
+    "review_plugin": {
+      "default_agent": "review_plugin.reviewer"
+    }
+  }
+}
+```
+
+Use plugin-specific defaults when a plugin owns multiple agents.
+Use the global default when the application has a primary agent.
+
+---
+
+## Prompt Hooks
+
+ATeam builds prompts through Morpheus. It does not hardcode prompt text in the core.
+
+Built-in ATeam hooks:
+- `agent_collect_prompt_fragments`
+- `agent_finalize_prompt`
+
+### `agent_collect_prompt_fragments`
+
+Purpose:
+- append or rewrite prompt fragments before the final prompt is assembled
+
+Signature:
+
+```python
+@hook("agent_collect_prompt_fragments", priority=10)
+def collect_fragments(fragments, context, rag2f):
+    return fragments
+```
+
+Input:
+- `fragments`: `list[PromptFragment]`
+- `context`: `PromptContext`
+
+Return:
+- a `list[PromptFragment]`
+
+### `agent_finalize_prompt`
+
+Purpose:
+- apply final transformations after fragment collection
+
+Signature:
+
+```python
+@hook("agent_finalize_prompt", priority=5)
+def finalize_prompt(resolved_prompt, context, rag2f):
+    return resolved_prompt
+```
+
+Input:
+- `resolved_prompt`: `ResolvedPrompt`
+- `context`: `PromptContext`
+
+Return:
+- `ResolvedPrompt`, or
+- `str` to replace the final prompt text
+
+### Prompt DTOs
+
+```python
+from rag2f.core.dto import PromptContext, PromptFragment, ResolvedPrompt
+
+fragment = PromptFragment(
+    text="Write a concise technical draft.",
+    plugin_id="writer_plugin",
+    metadata={"section": "instruction"},
+)
+```
+
+`PromptContext` contains enough routing data for prompt logic:
+- `agent_key`
+- `plugin_id`
+- `caller`
+- `caller_plugin_id`
+- `caller_hook`
+- `purpose`
+- `prompt_version`
+- `params`
+
+---
+
+## Plugin Pattern
+
+The correct place to register agents is the plugin lifecycle override `activated()`.
+
+### Minimal plugin layout
+
+```
+my_agent_plugin/
+├── __init__.py
+├── plugin.json
+├── plugin_overrides.py
+├── hooks.py
+└── requirements.txt
+```
+
+### Registration in `activated()`
+
+```python
+from rag2f.core.morpheus.decorators.plugin_decorator import plugin
+
+
+class MyRawAgent:
+    def __init__(self, model: str):
+        self.model = model
+
+
+class MyAgentAdapter:
+    def __init__(self, raw_agent):
+        self._raw_agent = raw_agent
+
+    @property
+    def raw(self):
+        return self._raw_agent
+
+    @property
+    def metadata(self):
+        return {"provider": "my_sdk", "model": self._raw_agent.model}
+
+    def run(self, request, *, rag2f):
+        return self._raw_agent.generate(request.prompt.text)
+
+    async def run_async(self, request, *, rag2f):
+        return await self._raw_agent.generate_async(request.prompt.text)
+
+
+@plugin
+def activated(plugin, rag2f_instance):
+    config = rag2f_instance.spock.get_plugin_config(plugin.id) or {}
+
+    writer = MyRawAgent(model=config.get("writer_model", "gpt-writer"))
+    reviewer = MyRawAgent(model=config.get("review_model", "gpt-reviewer"))
+
+    rag2f_instance.a_team.register(
+        f"{plugin.id}.writer",
+        MyAgentAdapter(writer),
+        plugin_id=plugin.id,
+        is_default=True,
+    )
+    rag2f_instance.a_team.register(
+        f"{plugin.id}.reviewer",
+        MyAgentAdapter(reviewer),
+        plugin_id=plugin.id,
+    )
+
+
+@plugin
+def deactivated(plugin, rag2f_instance):
+    rag2f_instance.a_team.unregister(f"{plugin.id}.writer")
+    rag2f_instance.a_team.unregister(f"{plugin.id}.reviewer")
+```
+
+### Prompt hooks in the same plugin
+
+```python
+from rag2f.core.dto import PromptFragment
+from rag2f.core.morpheus.decorators import hook
+
+
+@hook("agent_collect_prompt_fragments", priority=20)
+def add_writer_instruction(fragments, context, rag2f):
+    if context.purpose == "draft":
+        fragments.append(
+            PromptFragment(
+                text="Write a concise engineering draft.",
+                plugin_id=context.plugin_id,
+            )
+        )
+    return fragments
+
+
+@hook("agent_finalize_prompt", priority=5)
+def finalize_prompt(resolved_prompt, context, rag2f):
+    resolved_prompt.text = resolved_prompt.text.strip()
+    return resolved_prompt
+```
+
+---
+
+## Usage Patterns
+
+### Execute the default agent of a plugin
+
+```python
+from rag2f.core.dto import AgentRunRequest
+
+result = rag2f.a_team.execute_run(
+    AgentRunRequest(
+        input="Draft release notes for the async rollout.",
+        plugin_id="writer_plugin",
+        purpose="draft",
+        caller="app.pipeline",
+    )
+)
+```
+
+### Execute a specific agent
+
+```python
+result = await rag2f.a_team.execute_run_async(
+    AgentRunRequest(
+        input="Review the release notes.",
+        agent_key="review_plugin.reviewer",
+        purpose="review",
+        caller="app.pipeline",
+    )
+)
+```
+
+### Use the raw provider object
+
+```python
+raw_agent = rag2f.a_team.get_raw("writer_plugin.writer")
+if raw_agent is not None:
+    print(raw_agent)
+```
+
+---
+
+## Error Model
+
+ATeam follows the same rule used by other orchestrators in RAG2F:
+- expected business states should be represented in results or explicit control flow
+- system or orchestration failures should raise module-specific exceptions
+
+ATeam exceptions:
+- `ATeamError`
+- `AgentRegistrationError`
+- `AgentResolutionError`
+- `AgentPromptError`
+- `AgentExecutionError`
+
+Typical causes:
+- invalid adapter registration
+- missing default agent
+- prompt hooks returning invalid values
+- adapter runtime failure
+
+Use these exceptions when the framework itself cannot complete orchestration safely.
+
+---
+
+## What a Code Agent Should Do
+
+When asked to build an ATeam plugin, follow this checklist:
+
+1. define the provider-specific raw agent object
+2. wrap it in an `AgentAdapter`
+3. register the adapter in `activated()`
+4. pick stable keys: `plugin_id.agent_name`
+5. set one default with `is_default=True` or config
+6. add prompt hooks only if prompt logic belongs in the plugin
+7. keep provider SDK details out of the core
+8. test one realistic path with two agents and ordered hooks if prompt composition matters
+
+Avoid these mistakes:
+- importing provider SDK assumptions into core modules
+- storing heavy mutable runtime state in DTOs
+- using prompt hooks to register agents
+- depending on implicit global defaults when the plugin owns multiple agents
+- returning invalid types from prompt hooks

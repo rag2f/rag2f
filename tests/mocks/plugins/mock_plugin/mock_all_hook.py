@@ -58,3 +58,15 @@ def indiana_jones_synthesize(result, retrieve_result, return_mode, kwargs, rag2f
         result.used_source_ids = [item.id for item in (retrieve_result.items or [])[:2]]
 
     return result
+
+
+@hook
+def agent_collect_prompt_fragments(fragments, context, rag2f):
+    """Pass through prompt fragments for hook coverage tests."""
+    return fragments
+
+
+@hook
+def agent_finalize_prompt(resolved_prompt, context, rag2f):
+    """Pass through resolved prompts for hook coverage tests."""
+    return resolved_prompt

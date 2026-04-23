@@ -2,6 +2,10 @@
 
 Guide to installing, configuring, and using plugins to extend RAG2F.
 
+This document should help a code agent answer two questions quickly:
+- which manager a plugin should register into
+- how to verify that the plugin was discovered and is usable at runtime
+
 ## Plugin Discovery Order
 
 RAG2F discovers plugins from **two sources** in this priority order:
@@ -164,6 +168,20 @@ print("Repositories:", rag2f.xfiles.list_ids())
 if rag2f.xfiles.has("vectors"):
     caps = rag2f.xfiles.get_capabilities("vectors")
     print(f"Vector search supported: {caps.vector_search.supported}")
+
+  ### Check Agents (ATeam)
+
+  ```python
+  # List registered agents
+  print("Agents:", rag2f.a_team.list_keys())
+
+  # Get default agent for a plugin
+  writer = rag2f.a_team.get_default("writer_plugin")
+
+  # Get raw agent
+  raw_writer = rag2f.a_team.get_raw("writer_plugin.writer")
+  print(raw_writer)
+  ```
 ```
 
 ---
@@ -172,7 +190,7 @@ if rag2f.xfiles.has("vectors"):
 
 When `RAG2F.create()` is called:
 
-1. **Initialize core modules** — Spock, Johnny5, IndianaJones, OptimusPrime, XFiles, Morpheus
+1. **Initialize core modules** — Spock, Johnny5, IndianaJones, Morpheus, ATeam, OptimusPrime, XFiles
 2. **Load configuration** — JSON file first, then ENV overrides
 3. **morpheus.find_plugins()** discovers plugins:
   - Load from entry points (pip packages) → `plugin.activate()` for each
@@ -254,6 +272,61 @@ if result.is_ok() and result.repository:
     
     # Native access
     client = repo.native("client")
+
+  ### Agents (ATeam)
+
+  Plugins register agent adapters during plugin activation.
+
+  ```python
+  # plugins/writer_plugin/plugin_overrides.py
+  from rag2f.core.morpheus.decorators.plugin_decorator import plugin
+
+
+  @plugin
+  def activated(plugin, rag2f_instance):
+    adapter = MyAgentAdapter(...)
+    rag2f_instance.a_team.register(
+      f"{plugin.id}.writer",
+      adapter,
+      plugin_id=plugin.id,
+      is_default=True,
+    )
+
+
+  # Execute the plugin default agent
+  from rag2f.core.dto import AgentRunRequest
+
+  result = rag2f.a_team.execute_run(
+    AgentRunRequest(
+      input="Draft release notes",
+      plugin_id="writer_plugin",
+      purpose="draft",
+      caller="app.pipeline",
+    )
+  )
+
+  print(result.output)
+
+  # Execute a specific agent explicitly
+  review = await rag2f.a_team.execute_run_async(
+    AgentRunRequest(
+      input="Review this draft",
+      agent_key="writer_plugin.reviewer",
+      purpose="review",
+      caller="app.pipeline",
+    )
+  )
+  ```
+
+  ATeam-specific config keys:
+  - `rag2f.a_team_default`
+  - `plugins.<plugin_id>.default_agent`
+
+  ATeam-specific hooks:
+  - `agent_collect_prompt_fragments`
+  - `agent_finalize_prompt`
+
+  See [a_team.txt](./a_team.txt) for the detailed contract.
 ```
 
 ### Processing Pipeline

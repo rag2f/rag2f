@@ -76,6 +76,8 @@ def test_activate_plugin(plugin):
         "handle_text_foreground",
         "indiana_jones_retrieve",
         "indiana_jones_synthesize",
+        "agent_collect_prompt_fragments",
+        "agent_finalize_prompt",
     }
     assert hook_names == expected_hook_names
     for hook in plugin.hooks:

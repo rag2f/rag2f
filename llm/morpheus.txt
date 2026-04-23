@@ -135,6 +135,8 @@ def get_plugin_path() -> str:
 | `handle_text_foreground` | Johnny5 | Process input |
 | `indiana_jones_retrieve` | IndianaJones | Retrieval |
 | `indiana_jones_synthesize` | IndianaJones | Synthesize response from retrieved items |
+| `agent_collect_prompt_fragments` | ATeam | Collect prompt fragments before final prompt assembly |
+| `agent_finalize_prompt` | ATeam | Finalize or rewrite the resolved prompt |
 
 ## Hook Implementation Examples
 
@@ -181,6 +183,35 @@ def my_processor(done: bool, track_id: str, text: str, *, rag2f):
 def add_to_message(message: str, *, rag2f):
     return message + " priority 3"
 ```
+
+### ATeam Prompt Hook
+
+```python
+from rag2f.core.dto import PromptFragment
+
+
+@hook("agent_collect_prompt_fragments", priority=20)
+def add_fragments(fragments, context, rag2f):
+    if context.purpose == "draft":
+        fragments.append(
+            PromptFragment(
+                text="Write a concise technical draft.",
+                plugin_id=context.plugin_id,
+            )
+        )
+    return fragments
+```
+
+ATeam prompt hooks are useful when prompt logic must stay plugin-local and composable.
+Use them for:
+- prompt fragment composition
+- prompt variants based on `purpose`
+- prompt adjustments based on `caller_hook` or `params`
+
+Do not use them for:
+- registering agents
+- creating provider clients
+- long-lived mutable runtime state
 
 ## API Reference
 
