@@ -1,5 +1,6 @@
 """Hook integration tests for Morpheus and mock plugins."""
 
+from rag2f.core.dto import PromptContext, ResolvedPrompt
 from rag2f.core.dto.indiana_jones_dto import RetrieveResult, ReturnMode, SearchResult
 
 
@@ -96,3 +97,34 @@ def test_indiana_jones_synthesize_hook_creates_response(rag2f):
     assert output.query == "test query"
     assert output.response.startswith("Mock response")
     assert len(output.used_source_ids) > 0
+
+
+def test_agent_collect_prompt_fragments_hook_keeps_passthrough_context(rag2f):
+    """agent_collect_prompt_fragments should support a no-op passthrough context."""
+    context = PromptContext(agent_key="demo.agent", plugin_id="demo_plugin", purpose="noop")
+
+    output = rag2f.morpheus.execute_hook(
+        "agent_collect_prompt_fragments",
+        [],
+        context,
+        rag2f=rag2f,
+    )
+
+    assert isinstance(output, list)
+    assert output == []
+
+
+def test_agent_finalize_prompt_hook_keeps_passthrough_prompt(rag2f):
+    """agent_finalize_prompt should keep an already-final prompt stable when no rule applies."""
+    context = PromptContext(agent_key="demo.agent", plugin_id="demo_plugin", purpose="noop")
+    prompt = ResolvedPrompt(text="steady prompt", context=context)
+
+    output = rag2f.morpheus.execute_hook(
+        "agent_finalize_prompt",
+        prompt,
+        context,
+        rag2f=rag2f,
+    )
+
+    assert isinstance(output, ResolvedPrompt)
+    assert output.text == "steady prompt"

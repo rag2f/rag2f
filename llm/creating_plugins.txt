@@ -2,13 +2,17 @@
 
 Guide to building plugins that extend RAG2F functionality.
 
+This document is written for code agents and humans implementing plugins.
+Focus on stable contracts, registration points, and what belongs in a plugin vs. in the core.
+
 ## Plugin Architecture
 
-RAG2F Core contains these modules: Johnny5, IndianaJones, OptimusPrime, XFiles. All modules connect to Morpheus (the hook system). Plugins extend the system by registering hooks with Morpheus.
+RAG2F Core contains these modules: Johnny5, IndianaJones, OptimusPrime, XFiles, ATeam. All modules connect to Morpheus (the hook system). Plugins extend the system by registering hooks with Morpheus and by registering concrete runtime objects during plugin activation.
 
 **Plugin types:**
 - **Embedder plugins** — register embedders during plugin activation (OptimusPrime registry)
 - **Repository plugins** — register repositories during plugin activation (XFiles registry)
+- **Agent plugins** — register one or more agents during plugin activation (ATeam registry)
 - **Custom plugins** — extend any processing pipeline via hooks
 
 ## Minimal Plugin Structure
@@ -59,7 +63,7 @@ def my_handler(done, track_id, text, *, rag2f):
 
 ### 1. Plugin Lifecycle Overrides (activated/deactivated)
 
-Registration of embedders and repositories is done in plugin lifecycle overrides,
+Registration of embedders, repositories, and agents is done in plugin lifecycle overrides,
 not via hooks.
 
 ```python
@@ -77,6 +81,15 @@ def activated(plugin, rag2f_instance):
     embedder = MyEmbedder(api_key=config.get("api_key"))
     # Choose a stable registry key (often plugin_id). Ensure rag2f.embedder_default matches.
     rag2f_instance.optimus_prime.register(plugin_id, embedder)
+
+    # Example: register an agent adapter
+    writer = MyAgentAdapter(raw_agent=MyProviderAgent(...))
+    rag2f_instance.a_team.register(
+        f"{plugin_id}.writer",
+        writer,
+        plugin_id=plugin_id,
+        is_default=True,
+    )
 
 @plugin
 def deactivated(plugin, rag2f_instance):
@@ -153,6 +166,85 @@ def enrich_results(result, query, k, return_mode, for_synthesize, *, rag2f):
 | `handle_text_foreground` | Johnny5 | Process input | `(done, track_id, text, *, rag2f)` |
 | `indiana_jones_retrieve` | IndianaJones | Retrieval | `(result, query, k, return_mode, for_synthesize, *, rag2f)` |
 | `indiana_jones_synthesize` | IndianaJones | Synthesize | `(result, retrieve_result, return_mode, kwargs, *, rag2f)` |
+| `agent_collect_prompt_fragments` | ATeam | Collect prompt fragments | `(fragments, context, *, rag2f)` |
+| `agent_finalize_prompt` | ATeam | Final prompt rewrite | `(resolved_prompt, context, *, rag2f)` |
+
+### ATeam plugin pattern
+
+Use ATeam when a plugin needs to expose LLM agents or prompt-driven agents.
+
+Recommended key pattern:
+- `plugin_id.default`
+- `plugin_id.writer`
+- `plugin_id.reviewer`
+- `plugin_id.router`
+
+Recommended flow:
+1. create provider-specific raw agents inside `activated()`
+2. wrap them in lightweight adapters implementing `AgentAdapter`
+3. register them through `rag2f_instance.a_team.register(...)`
+4. optionally add `agent_collect_prompt_fragments` and `agent_finalize_prompt` hooks
+5. clean up registrations in `deactivated()`
+
+Minimal example:
+
+```python
+from rag2f.core.morpheus.decorators.plugin_decorator import plugin
+
+
+class MyRawAgent:
+    def __init__(self, model: str):
+        self.model = model
+
+
+class MyAgentAdapter:
+    def __init__(self, raw_agent):
+        self._raw_agent = raw_agent
+
+    @property
+    def raw(self):
+        return self._raw_agent
+
+    @property
+    def metadata(self):
+        return {"provider": "my_sdk", "model": self._raw_agent.model}
+
+    def run(self, request, *, rag2f):
+        return self._raw_agent.generate(request.prompt.text)
+
+    async def run_async(self, request, *, rag2f):
+        return await self._raw_agent.generate_async(request.prompt.text)
+
+
+@plugin
+def activated(plugin, rag2f_instance):
+    writer = MyAgentAdapter(MyRawAgent("writer-model"))
+    rag2f_instance.a_team.register(
+        f"{plugin.id}.writer",
+        writer,
+        plugin_id=plugin.id,
+        is_default=True,
+    )
+```
+
+If prompt logic belongs to the plugin, implement hooks:
+
+```python
+from rag2f.core.dto import PromptFragment
+from rag2f.core.morpheus.decorators import hook
+
+
+@hook("agent_collect_prompt_fragments", priority=20)
+def add_prompt_parts(fragments, context, rag2f):
+    if context.purpose == "draft":
+        fragments.append(
+            PromptFragment(
+                text="Write a concise draft for engineers.",
+                plugin_id=context.plugin_id,
+            )
+        )
+    return fragments
+```
 
 ## Johnny5 and FluxCapacitor
 
@@ -169,6 +261,8 @@ This keeps the Johnny5 API stable and avoids leaking internal workflow ids into 
 ## Complete Plugin Example: Vector Store
 
 ```
+
+For agent plugins, see [a_team.txt](./a_team.txt).
 rag2f_qdrant_plugin/
 ├── __init__.py
 ├── plugin.json

@@ -235,6 +235,22 @@ class TestSpockSetters:
         spock.set_plugin_config("my_plugin", "setting_key", "setting_value")
         assert spock.get_plugin_config("my_plugin", "setting_key") == "setting_value"
 
+    def test_explicit_load_after_preload_applies_config(self):
+        """Explicit config load should rebuild state after an earlier preload."""
+        spock = Spock()
+
+        assert spock.get_rag2f_config("missing") is None
+
+        spock.load(
+            config={
+                "rag2f": {"a_team_default": "plugin.agent"},
+                "plugins": {"plugin": {"default_agent": "plugin.agent"}},
+            }
+        )
+
+        assert spock.get_rag2f_config("a_team_default") == "plugin.agent"
+        assert spock.get_plugin_config("plugin", "default_agent") == "plugin.agent"
+
 
 class TestSpockReload:
     """Test configuration reload functionality."""

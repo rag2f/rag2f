@@ -1,0 +1,368 @@
+# Exceptions in RAG2F
+
+Guide for code agents that need to understand the exception model of RAG2F and implement new functionality without breaking the framework's error semantics.
+
+This file explains:
+- when to use results vs exceptions
+- why the project uses both models
+- how exception classes are structured
+- how to introduce new exceptions in future modules
+- what a code agent should do when extending the framework
+
+---
+
+## The Core Rule
+
+RAG2F separates expected states from system failures.
+
+### Expected states
+
+Expected states are part of normal control flow.
+
+Examples:
+- empty input
+- duplicate input
+- no results found
+- repository not found in a normal branch
+
+These states should usually be represented with the Result Pattern.
+
+```python
+result = some_operation()
+
+if result.is_error():
+    print(result.detail.code)
+```
+
+Use this when the caller is expected to handle the state without a stack trace.
+
+### System failures
+
+System failures mean the framework could not safely complete orchestration.
+
+Examples:
+- backend crash
+- plugin hook produced invalid type or broke orchestration invariants
+- adapter execution exploded unexpectedly
+- parser or manifest loading failed in a way that breaks execution
+
+These failures should raise exceptions.
+
+---
+
+## Why RAG2F Uses Both
+
+This split is intentional.
+
+Benefits of results for expected states:
+- cheaper than exceptions for common branches
+- explicit and easy to inspect
+- stable for pipelines and tests
+- good fit for domain states
+
+Benefits of exceptions for system failures:
+- preserve stack traces
+- prevent silent corruption of orchestration
+- communicate that normal execution cannot continue safely
+- allow module-specific failure semantics
+
+If a code agent confuses these two models, the framework becomes noisy or misleading.
+
+Typical bad outcomes:
+- raising exceptions for empty input
+- returning `status="error"` when a plugin corrupted the pipeline shape
+- swallowing provider failures into generic booleans
+
+---
+
+## Current Patterns in the Repo
+
+### Result-first modules
+
+The result model is centered in:
+- `rag2f.core.dto.result_dto`
+- module-specific DTOs under `rag2f.core.dto.*`
+
+Examples:
+- Johnny5 returns `InsertResult`
+- IndianaJones returns `RetrieveResult` and `SearchResult`
+- XFiles uses result DTOs for many registry operations
+
+### Exception-backed orchestration modules
+
+Modules already using module-specific exceptions:
+- IndianaJones
+- ATeam
+- XFiles
+
+Modules using built-in exceptions in registry-style APIs:
+- OptimusPrime
+- Spock
+- parts of Morpheus and Plugin loading
+
+Important nuance:
+- not all modules are fully normalized yet
+- code agents should follow the best local pattern already present in the target module
+- when designing a new orchestration manager, prefer module-specific exceptions plus context
+
+---
+
+## Exception Design Pattern
+
+The preferred pattern for orchestration modules is:
+
+1. one base exception per module
+2. a small number of specific subclasses grouped by failure category
+3. a `context` dict attached to the exception
+4. readable messages aimed at debugging and logs
+
+Example shape:
+
+```python
+class MyModuleError(Exception):
+    def __init__(self, message: str, *, context: dict | None = None):
+        super().__init__(message)
+        self.context = context or {}
+
+
+class ResolutionError(MyModuleError):
+    pass
+
+
+class ExecutionError(MyModuleError):
+    pass
+```
+
+Why `context` matters:
+- it keeps useful diagnostics without forcing fragile message parsing
+- tests can assert on structured fields
+- logs can show targeted debug information
+
+Good context examples:
+- `plugin_id`
+- `agent_key`
+- `query`
+- `hook_name`
+- `purpose`
+- `caller_hook`
+
+Bad context examples:
+- secrets
+- access tokens
+- huge raw payloads
+- entire mutable runtime objects
+
+---
+
+## ATeam as the Current Reference Pattern
+
+ATeam is a good modern example for future orchestration work.
+
+Exception hierarchy:
+- `ATeamError`
+- `AgentRegistrationError`
+- `AgentResolutionError`
+- `AgentPromptError`
+- `AgentExecutionError`
+
+What they mean:
+- registration errors: invalid adapter registration or conflicting defaults
+- resolution errors: missing or invalid agent selection/defaults
+- prompt errors: prompt hook pipeline broke the contract
+- execution errors: adapter runtime failure
+
+This is the pattern a code agent should prefer for new manager-style modules.
+
+---
+
+## IndianaJones as a Transitional Reference
+
+IndianaJones uses the split clearly:
+- empty or normal no-op states return results
+- retrieval and synthesis crashes raise `RetrievalError`
+
+This is a simpler pattern than ATeam but follows the same principle.
+
+Use it when the module has one dominant failure class and does not yet need a richer taxonomy.
+
+---
+
+## XFiles as a Domain Exception Example
+
+XFiles mixes:
+- result objects for many registry and lookup operations
+- domain exceptions for validation and repository capabilities
+
+This is useful when:
+- the module exposes a richer domain model
+- invalid operations need more precise failure types
+- callers benefit from semantic exceptions like validation, backend, or unsupported operations
+
+---
+
+## When to Create a New Exception Module
+
+Create a dedicated `exceptions.py` when most of these are true:
+- the module is an orchestrator or manager
+- failures belong to the module's public contract
+- callers may want to catch module-specific errors
+- generic built-in exceptions would hide useful semantics
+
+Do not create a large custom exception tree when:
+- built-in exceptions already express the error clearly
+- the module is still tiny and has no stable public failure model
+- the new hierarchy would add names without adding meaning
+
+Pragmatic rule:
+- if the module has multiple distinct orchestration failure categories, add `exceptions.py`
+- if not, built-ins may still be acceptable
+
+---
+
+## How to Decide: Result or Exception?
+
+### Return a Result when
+
+- the state is expected in normal operation
+- the caller can branch naturally on it
+- no stack trace is needed
+- the system is still healthy
+
+Examples:
+- input is empty
+- duplicate detected
+- search returns nothing
+- requested registry item is missing but this is a normal branch
+
+### Raise an Exception when
+
+- the module contract was violated
+- a plugin returned the wrong type or shape
+- a provider SDK failed unexpectedly
+- continuing would risk hidden corruption
+- the failure should be observable and debuggable immediately
+
+Examples:
+- prompt hook returned a string when a list of fragments was required
+- backend request crashed
+- adapter execution raised runtime failure
+- internal resolution invariants were broken
+
+---
+
+## How to Implement Exceptions in a New Module
+
+Recommended steps for a code agent:
+
+1. identify expected states first
+2. model those states using results, status codes, or explicit return branches
+3. isolate the true orchestration failures
+4. create `exceptions.py` only if the failures form a useful public taxonomy
+5. attach structured `context`
+6. raise module-specific exceptions at orchestration boundaries
+7. keep messages concise and diagnostic
+8. test one realistic raised path, not every built-in branch mechanically
+
+Minimal example:
+
+```python
+from rag2f.core.dto.result_dto import StatusCode, StatusDetail
+from .exceptions import ResolutionError
+
+
+def execute_something(name: str):
+    if not name.strip():
+        return MyResult.fail(StatusDetail(code=StatusCode.EMPTY, message="Name is empty"))
+
+    try:
+        value = resolve_backend(name)
+    except Exception as exc:
+        raise ResolutionError(
+            f"Backend resolution failed for {name!r}: {exc}",
+            context={"name": name},
+        ) from exc
+
+    return MyResult.success(value=value)
+```
+
+---
+
+## How to Test Exception Behavior
+
+Tests should validate behavior, not just class names.
+
+Good tests:
+- trigger one real orchestration failure
+- assert the specific exception type
+- assert the important `context` fields
+- keep setup lightweight and deterministic
+
+Example:
+
+```python
+with pytest.raises(AgentExecutionError) as exc_info:
+    rag2f.a_team.execute_run(request)
+
+assert exc_info.value.context["agent_key"] == "my_plugin.writer"
+```
+
+Do not over-test this:
+- exact full message strings unless they are contractually important
+- every subclass constructor in isolation
+- third-party exception internals
+
+---
+
+## Logging and Exceptions
+
+Exceptions should work with structured logging, not replace it.
+
+Recommended pattern:
+
+```python
+logger.error("Agent execution failed for '%s': %s", entry.key, exc)
+raise AgentExecutionError(..., context={...}) from exc
+```
+
+Use logging to preserve runtime narrative.
+Use exceptions to preserve control-flow semantics and stack traces.
+
+Do not:
+- log secrets
+- dump giant provider payloads into `context`
+- catch and suppress an exception unless the module has a clear fallback strategy
+
+---
+
+## Anti-Patterns for Code Agents
+
+Avoid these mistakes when extending the framework:
+
+- adding exceptions for every minor branch with no semantic value
+- raising generic `RuntimeError` when the module already has a clear taxonomy
+- returning `status="error"` for corrupted internal state
+- stuffing raw SDK responses into `context`
+- inventing a new exception model that conflicts with the target module
+- wrapping exceptions too early and losing the useful cause chain
+
+---
+
+## Practical Checklist
+
+Before finishing a feature that touches error handling, verify:
+
+1. expected states use the result model when appropriate
+2. true system failures raise exceptions
+3. the exception names match the module responsibility
+4. useful context is attached
+5. tests cover at least one realistic raised path
+6. logs and exceptions tell a coherent story together
+
+---
+
+## Related Docs
+
+- [llms.txt](./llms.txt) — high-level framework model
+- [a_team.txt](./a_team.txt) — ATeam-specific error model
+- [indiana_jones.txt](./indiana_jones.txt) — retrieval-specific example
+- [testing.txt](./testing.txt) — testing guidance for raised paths

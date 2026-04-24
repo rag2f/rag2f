@@ -47,16 +47,15 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies (dev) for audit
+      - name: Install audit tools
         run: |
           python -m pip install --upgrade pip
-          pip install uv
-          uv pip install --system -e '.[dev]'
+          pip install uv pip-audit
 
       - name: Run pip-audit
         run: |
-          python -m pip install pip-audit
-          pip-audit
+          uv pip compile pyproject.toml -o /tmp/requirements-runtime.txt
+          pip-audit -r /tmp/requirements-runtime.txt
 
   validate-and-test:
     runs-on: ubuntu-latest
@@ -207,6 +206,7 @@ jobs:
           fi
           BASE_VERSION=$(cat NEXT_VERSION | tr -d '[:space:]')
           echo "Base version: $BASE_VERSION"
+
           DEV_VERSION="${BASE_VERSION}.dev${{ github.run_number }}"
           echo "Dev version: $DEV_VERSION"
           echo "version=$DEV_VERSION" >> $GITHUB_OUTPUT

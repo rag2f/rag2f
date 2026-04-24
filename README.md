@@ -67,6 +67,7 @@ The names are constraints on design, not jokes. Registries and managers are the 
 - Johnny5: input manager. Small, deterministic input handlers.
 - Morpheus: plugin and hook manager. The "reality adapter" that loads plugins and executes hooks.
 - Spock: configuration manager. Central, instance-scoped config (JSON + env).
+- ATeam: agent registry and prompt orchestration. Agents are provided by plugins.
 - OptimusPrime: embedder registry. Embedders are provided by plugins.
 - XFiles: repository registry. The truth is out there.
 
@@ -74,6 +75,7 @@ The names are constraints on design, not jokes. Registries and managers are the 
 
 Plugins are the primary extension mechanism. A plugin can provide:
 
+- Agents (registered during plugin activation into ATeam)
 - Embedders (registered during plugin activation into OptimusPrime)
 - Repositories (registered during plugin activation into XFiles)
 - Additional hook implementations that change behavior

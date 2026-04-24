@@ -69,9 +69,12 @@ class Spock:
         3. Provided config (if any)
         4. Default values
         """
-        if self._loaded:
+        if self._loaded and config is None:
             logger.debug("Configuration already loaded, skipping reload")
             return
+
+        if self._loaded:
+            logger.debug("Configuration already loaded; reloading with explicit config override")
 
         self._config = self.default_config()
 
