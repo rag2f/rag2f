@@ -10,6 +10,7 @@ import uuid
 
 from rag2f.core.dto.johnny5_dto import InsertResult
 from rag2f.core.dto.result_dto import StatusCode, StatusDetail
+from rag2f.core.observability import debug_event, observation_scope
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ class Johnny5:
             rag2f_instance: Optional RAG2F instance used to invoke hooks.
         """
         self.rag2f = rag2f_instance
-        logger.debug("Johnny5 created ")
+        debug_event(logger, "johnny5_initialized", has_rag2f=self.rag2f is not None)
 
     def execute_handle_text_foreground(self, text: str) -> InsertResult:
         """Process text input through the foreground pipeline.
@@ -49,8 +50,11 @@ class Johnny5:
             This method does NOT raise exceptions for expected states.
             System errors (rare) may still raise RuntimeError.
         """
+        input_length = len(text) if text is not None else 0
+        debug_event(logger, "johnny5_handle_text_start", input_length=input_length)
+
         if text is None or not str(text).strip():
-            logger.debug("execute_handle_text_foreground input empty")
+            debug_event(logger, "johnny5_handle_text_empty", input_length=input_length)
             return InsertResult.fail(
                 StatusDetail(code=StatusCode.EMPTY, message="Input text is empty")
             )
@@ -63,35 +67,40 @@ class Johnny5:
         if track_id is None:
             track_id = uuid.uuid4().hex
 
-        duplicated = False
-        if self.rag2f:
-            duplicated = self.rag2f.morpheus.execute_hook(
-                "check_duplicated_input_text", duplicated, track_id, text, rag2f=self.rag2f
-            )
-        if duplicated:
-            logger.debug("execute_handle_text_foreground input duplicated")
-            return InsertResult.fail(
-                StatusDetail(
-                    code=StatusCode.DUPLICATE,
-                    message="Input text is duplicated",
-                    context={"id": track_id, "text": text[:20]},
-                )
-            )
+        with observation_scope(track_id=track_id):
+            debug_event(logger, "johnny5_track_id_ready", track_id=track_id)
 
-        done = False
-        if self.rag2f:
-            done = self.rag2f.morpheus.execute_hook(
-                "handle_text_foreground", done, track_id, text, rag2f=self.rag2f
-            )
-        if not done:
-            logger.debug("execute_handle_text_foreground input not handled by any hook")
-            return InsertResult.fail(
-                StatusDetail(
-                    code=StatusCode.NOT_HANDLED, message="Input text not handled by any hook"
+            duplicated = False
+            if self.rag2f:
+                duplicated = self.rag2f.morpheus.execute_hook(
+                    "check_duplicated_input_text", duplicated, track_id, text, rag2f=self.rag2f
                 )
-            )
+            if duplicated:
+                debug_event(logger, "johnny5_handle_text_duplicate", input_length=input_length)
+                return InsertResult.fail(
+                    StatusDetail(
+                        code=StatusCode.DUPLICATE,
+                        message="Input text is duplicated",
+                        context={"id": track_id, "text": text[:20]},
+                    )
+                )
 
-        return InsertResult.success(track_id=track_id)
+            done = False
+            if self.rag2f:
+                done = self.rag2f.morpheus.execute_hook(
+                    "handle_text_foreground", done, track_id, text, rag2f=self.rag2f
+                )
+            if not done:
+                debug_event(logger, "johnny5_handle_text_not_handled")
+                return InsertResult.fail(
+                    StatusDetail(
+                        code=StatusCode.NOT_HANDLED,
+                        message="Input text not handled by any hook",
+                    )
+                )
+
+            debug_event(logger, "johnny5_handle_text_complete", handled=done)
+            return InsertResult.success(track_id=track_id)
 
 
 InputManager = Johnny5

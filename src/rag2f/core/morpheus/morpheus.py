@@ -14,6 +14,13 @@ from typing import TYPE_CHECKING, Any
 
 from rag2f.core import utils
 from rag2f.core.morpheus.decorators.hook import PillHook
+from rag2f.core.observability import (
+    debug_event,
+    exception_event,
+    info_event,
+    observation_scope,
+    warning_event,
+)
 
 from .plugin import Plugin
 
@@ -49,7 +56,7 @@ class Morpheus:
         # callback out of the hook system to notify other components about a refresh
         self.on_refresh_callbacks: list[Callable] = []
 
-        logger.debug("Morpheus instance created with plugins_folder: %s", self.plugins_folder)
+        debug_event(logger, "morpheus_initialized", plugins_folder=self.plugins_folder)
 
     # discover all plugins from both entry points and filesystem
     async def find_plugins(self):
@@ -61,15 +68,14 @@ class Morpheus:
 
         Entry points take precedence to allow installed versions to override local ones.
         """
-        self.plugins = {}
+        with observation_scope(component="morpheus.find_plugins"):
+            debug_event(logger, "morpheus_find_plugins_start")
+            self.plugins = {}
 
-        # 1. Load from entry points (installed packages)
-        await self._load_from_entry_points()
-
-        # 2. Load from filesystem (local development/path-based)
-        await self._load_from_filesystem()
-
-        await self.refresh_caches()
+            await self._load_from_entry_points()
+            await self._load_from_filesystem()
+            await self.refresh_caches()
+            debug_event(logger, "morpheus_find_plugins_complete", plugin_count=len(self.plugins))
 
     async def _load_from_entry_points(self):
         """Load plugins from installed packages via entry points."""
@@ -81,78 +87,96 @@ class Morpheus:
             discovered = entry_points().get("rag2f.plugins", [])
 
         for ep in discovered:
-            try:
-                plugin_factory = ep.load()
+            with observation_scope(entry_point=ep.name, plugin_source="entry_point"):
+                try:
+                    plugin_factory = ep.load()
 
-                # The factory should return the plugin path
-                if not callable(plugin_factory):
-                    logger.warning(f"Entry point '{ep.name}' is not callable")
-                    continue
+                    if not callable(plugin_factory):
+                        warning_event(logger, "morpheus_entry_point_not_callable")
+                        continue
 
-                plugin_path = plugin_factory()
+                    plugin_path = plugin_factory()
 
-                if not isinstance(plugin_path, str):
-                    logger.warning(
-                        f"Entry point '{ep.name}' did not return a string path, got: {type(plugin_path)}"
-                    )
-                    continue
-
-                # FIX: If the plugin path points to site-packages directory itself,
-                # this is likely a bug in the plugin's get_plugin_path() function.
-                # Try to find the actual plugin directory based on the entry point name.
-                if (
-                    "site-packages" in plugin_path
-                    and os.path.basename(plugin_path.rstrip("/")) == "site-packages"
-                ):
-                    logger.warning(
-                        f"Entry point '{ep.name}' returned site-packages directory, attempting to locate actual plugin"
-                    )
-
-                    # Try to find plugin directory using entry point name.
-                    # Try both with hyphens and underscores (pkg names use hyphens,
-                    # module names use underscores).
-                    potential_names = [
-                        ep.name,  # rag2f-openai-embedder
-                        ep.name.replace("-", "_"),  # rag2f_openai_embedder
-                    ]
-
-                    found = False
-                    for name in potential_names:
-                        potential_plugin_dir = os.path.join(plugin_path, name)
-                        if os.path.isdir(potential_plugin_dir):
-                            logger.info(f"Found plugin directory: {potential_plugin_dir}")
-                            plugin_path = potential_plugin_dir
-                            found = True
-                            break
-
-                    if not found:
-                        logger.error(
-                            f"Could not locate plugin directory for '{ep.name}' in {plugin_path}"
+                    if not isinstance(plugin_path, str):
+                        warning_event(
+                            logger,
+                            "morpheus_entry_point_invalid_path",
+                            returned_type=type(plugin_path).__name__,
                         )
                         continue
 
-                # Create plugin from the returned path
-                plugin = Plugin(self._rag2f_instance, plugin_path)
+                    if (
+                        "site-packages" in plugin_path
+                        and os.path.basename(plugin_path.rstrip("/")) == "site-packages"
+                    ):
+                        warning_event(
+                            logger,
+                            "morpheus_entry_point_site_packages_root",
+                            plugin_path=plugin_path,
+                        )
 
-                # Register plugin (entry points have priority over filesystem)
-                if plugin.id not in self.plugins:
-                    self.plugins[plugin.id] = plugin
-                    plugin.activate()
-                    logger.info(f"✅ Loaded plugin '{plugin.id}' from entry point '{ep.name}'")
-                else:
-                    logger.debug(
-                        f"Plugin '{plugin.id}' already loaded, skipping entry point '{ep.name}'"
+                        potential_names = [
+                            ep.name,
+                            ep.name.replace("-", "_"),
+                        ]
+
+                        found = False
+                        for name in potential_names:
+                            potential_plugin_dir = os.path.join(plugin_path, name)
+                            if os.path.isdir(potential_plugin_dir):
+                                info_event(
+                                    logger,
+                                    "morpheus_entry_point_plugin_dir_found",
+                                    plugin_path=potential_plugin_dir,
+                                )
+                                plugin_path = potential_plugin_dir
+                                found = True
+                                break
+
+                        if not found:
+                            warning_event(
+                                logger,
+                                "morpheus_entry_point_plugin_dir_missing",
+                                plugin_path=plugin_path,
+                            )
+                            continue
+
+                    plugin = Plugin(self._rag2f_instance, plugin_path)
+
+                    if plugin.id not in self.plugins:
+                        self.plugins[plugin.id] = plugin
+                        with observation_scope(plugin_id=plugin.id):
+                            plugin.activate()
+                            info_event(
+                                logger,
+                                "morpheus_plugin_loaded",
+                                plugin_source="entry_point",
+                                plugin_path=plugin_path,
+                            )
+                    else:
+                        debug_event(
+                            logger,
+                            "morpheus_plugin_skip_duplicate",
+                            plugin_id=plugin.id,
+                            plugin_source="entry_point",
+                        )
+
+                except Exception as e:
+                    exception_event(
+                        logger,
+                        "morpheus_plugin_load_failed",
+                        plugin_source="entry_point",
+                        error_type=type(e).__name__,
                     )
-
-            except Exception as e:
-                logger.error(
-                    f"Failed to load plugin from entry point '{ep.name}': {e}", exc_info=True
-                )
 
     async def _load_from_filesystem(self):
         """Load plugins from filesystem (existing behavior for local development)."""
         if not os.path.exists(self.plugins_folder):
-            logger.warning(f"Plugins folder does not exist: {self.plugins_folder}")
+            warning_event(
+                logger,
+                "morpheus_plugins_folder_missing",
+                plugins_folder=self.plugins_folder,
+            )
             return
 
         all_plugin_folders = glob.glob(f"{self.plugins_folder}*/")
@@ -165,21 +189,34 @@ class Morpheus:
 
         # Convert plugin folders to absolute paths
         for folder in all_plugin_folders:
-            try:
-                plugin = Plugin(self._rag2f_instance, folder)
+            with observation_scope(plugin_source="filesystem", plugin_path=folder):
+                try:
+                    plugin = Plugin(self._rag2f_instance, folder)
 
-                # Avoid duplicates (entry points have priority)
-                if plugin.id not in self.plugins:
-                    self.plugins[plugin.id] = plugin
-                    plugin.activate()
-                    logger.info(f"📁 Loaded plugin '{plugin.id}' from filesystem: {folder}")
-                else:
-                    logger.debug(
-                        f"Plugin '{plugin.id}' already loaded from entry point, skipping filesystem version"
+                    if plugin.id not in self.plugins:
+                        self.plugins[plugin.id] = plugin
+                        with observation_scope(plugin_id=plugin.id):
+                            plugin.activate()
+                            info_event(
+                                logger,
+                                "morpheus_plugin_loaded",
+                                plugin_source="filesystem",
+                            )
+                    else:
+                        debug_event(
+                            logger,
+                            "morpheus_plugin_skip_duplicate",
+                            plugin_id=plugin.id,
+                            plugin_source="filesystem",
+                        )
+
+                except Exception as e:
+                    exception_event(
+                        logger,
+                        "morpheus_plugin_load_failed",
+                        plugin_source="filesystem",
+                        error_type=type(e).__name__,
                     )
-
-            except Exception:
-                logger.error(f"Could not load plugin in {folder}", exc_info=True)
         await self.refresh_caches()
 
     # Load hooks, tools and forms of the active plugins into Morpheus
@@ -202,6 +239,16 @@ class Morpheus:
         # Notify subscribers about finished refresh
         for callback in self.on_refresh_callbacks:
             await utils.run_sync_or_async(callback)
+
+        if logger.isEnabledFor(logging.DEBUG):
+            total_hooks = sum(len(hooks) for hooks in self.hooks.values())
+            debug_event(
+                logger,
+                "morpheus_refresh_caches_complete",
+                plugin_count=len(self.plugins),
+                hook_pipeline_count=len(self.hooks),
+                total_hooks=total_hooks,
+            )
 
     def plugin_exists(self, plugin_id) -> bool:
         """Check if a plugin exists locally."""
@@ -231,9 +278,8 @@ class Morpheus:
         Returns:
             The piped value (or None when the hook takes no args).
         """
-        # check if hook is supported
         if hook_name not in self.hooks:
-            logger.debug(f"Hook {hook_name} not present in any plugin")
+            debug_event(logger, "morpheus_hook_missing", hook_name=hook_name)
             if len(args) == 0:
                 return
             else:
@@ -243,15 +289,30 @@ class Morpheus:
         #  no need to pipe
         if len(args) == 0:
             for hook in self.hooks[hook_name]:
-                try:
-                    logger.debug(
-                        f"Executing {hook.plugin_id}::{hook.name} with priority {hook.priority}"
-                    )
-                    hook.function(rag2f=rag2f)
-                except Exception:
-                    logger.error(f"Error in plugin {hook.plugin_id}::{hook.name}")
-                    plugin_obj = self.plugins[hook.plugin_id]
-                    logger.warning(plugin_obj.plugin_specific_error_message())
+                with observation_scope(plugin_id=hook.plugin_id, hook_name=hook.name):
+                    try:
+                        debug_event(
+                            logger,
+                            "morpheus_hook_execute_start",
+                            hook_priority=hook.priority,
+                            arg_count=0,
+                        )
+                        hook.function(rag2f=rag2f)
+                        debug_event(logger, "morpheus_hook_execute_complete", arg_count=0)
+                    except Exception as e:
+                        exception_event(
+                            logger,
+                            "hook_execution_failed",
+                            hook_priority=hook.priority,
+                            arg_count=0,
+                            error_type=type(e).__name__,
+                        )
+                        plugin_obj = self.plugins[hook.plugin_id]
+                        warning_event(
+                            logger,
+                            "hook_execution_support_hint",
+                            support_hint=plugin_obj.plugin_specific_error_message(),
+                        )
             return
 
         # Hook with arguments.
@@ -261,23 +322,39 @@ class Morpheus:
         # for the next hook.
         phone = deepcopy(args[0])
 
-        # run hooks
         for hook in self.hooks[hook_name]:
-            try:
-                # pass phone to the hooks, along other args
-                # hook has at least one argument, and it will be piped
-                logger.debug(
-                    f"Executing {hook.plugin_id}::{hook.name} with priority {hook.priority}"
-                )
-                dial_pad = hook.function(deepcopy(phone), *deepcopy(args[1:]), rag2f=rag2f)
-                if dial_pad is not None:
-                    phone = dial_pad
-            except Exception:
-                logger.error(f"Error in plugin {hook.plugin_id}::{hook.name}")
-                plugin_obj = self.plugins[hook.plugin_id]
-                logger.warning(plugin_obj.plugin_specific_error_message())
+            with observation_scope(plugin_id=hook.plugin_id, hook_name=hook.name):
+                try:
+                    debug_event(
+                        logger,
+                        "morpheus_hook_execute_start",
+                        hook_priority=hook.priority,
+                        arg_count=len(args),
+                    )
+                    dial_pad = hook.function(deepcopy(phone), *deepcopy(args[1:]), rag2f=rag2f)
+                    if dial_pad is not None:
+                        phone = dial_pad
+                    debug_event(
+                        logger,
+                        "morpheus_hook_execute_complete",
+                        arg_count=len(args),
+                        replaced_value=dial_pad is not None,
+                    )
+                except Exception as e:
+                    exception_event(
+                        logger,
+                        "hook_execution_failed",
+                        hook_priority=hook.priority,
+                        arg_count=len(args),
+                        error_type=type(e).__name__,
+                    )
+                    plugin_obj = self.plugins[hook.plugin_id]
+                    warning_event(
+                        logger,
+                        "hook_execution_support_hint",
+                        support_hint=plugin_obj.plugin_specific_error_message(),
+                    )
 
-        # phone has passed through all hooks. Return final output
         return phone
 
     def self_plugin_id(self):

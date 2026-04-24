@@ -13,6 +13,7 @@ from rag2f.core.flux_capacitor.flux_capacitor import FluxCapacitor
 from rag2f.core.indiana_jones.indiana_jones import IndianaJones
 from rag2f.core.johnny5.johnny5 import Johnny5
 from rag2f.core.morpheus.morpheus import Morpheus
+from rag2f.core.observability import debug_event, observation_scope
 from rag2f.core.optimus_prime.optimus_prime import OptimusPrime
 from rag2f.core.spock.spock import Spock
 from rag2f.core.xfiles.xfiles import XFiles
@@ -56,7 +57,12 @@ class RAG2F:
         self.task_manager = self.flux_capacitor
         self.embedder_manager = self.optimus_prime
         self.repository_manager = self.xfiles
-        logger.debug("RAG2F instance created.")
+        debug_event(
+            logger,
+            "rag2f_initialized",
+            plugins_folder=plugins_folder,
+            config_path=config_path,
+        )
 
     @classmethod
     async def create(
@@ -73,13 +79,24 @@ class RAG2F:
             config_path: Path to JSON configuration file
             config: Optional configuration dictionary
         """
-        instance = cls.__new__(cls)  # bypass __init__
-        instance._initialize(plugins_folder=plugins_folder, config_path=config_path)
-        # Load configuration first
-        instance.spock.load(config=config)
-        # Then discover and activate plugins
-        await instance.morpheus.find_plugins()
-        return instance
+        with observation_scope(component="rag2f.create"):
+            debug_event(
+                logger,
+                "rag2f_create_start",
+                plugins_folder=plugins_folder,
+                config_path=config_path,
+                config_provided=config is not None,
+            )
+            instance = cls.__new__(cls)  # bypass __init__
+            instance._initialize(plugins_folder=plugins_folder, config_path=config_path)
+            instance.spock.load(config=config)
+            await instance.morpheus.find_plugins()
+            debug_event(
+                logger,
+                "rag2f_create_complete",
+                plugin_count=len(instance.morpheus.plugins),
+            )
+            return instance
 
     def input_text_foreground(self, text: str) -> str:
         """Process input text through the foreground pipeline.
@@ -90,6 +107,17 @@ class RAG2F:
         Returns:
             The processed result.
         """
-        processed = self.johnny5.handle_text_foreground(text)
-        logger.debug("RAG2F.input_text processed=%r", processed)
-        return processed
+        with observation_scope(operation="input_text_foreground"):
+            debug_event(
+                logger,
+                "rag2f_input_text_foreground_start",
+                input_length=len(text) if text is not None else 0,
+            )
+            processed = self.johnny5.execute_handle_text_foreground(text)
+            debug_event(
+                logger,
+                "rag2f_input_text_foreground_complete",
+                status=processed.status,
+                track_id=processed.track_id,
+            )
+            return processed

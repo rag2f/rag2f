@@ -23,6 +23,13 @@ from rag2f.core.morpheus.decorators import PillHook
 from rag2f.core.morpheus.decorators.plugin_decorator import PillPluginDecorator
 from rag2f.core.morpheus.package_installer import PackageInstaller
 from rag2f.core.morpheus.plugin_manifest import PluginManifest
+from rag2f.core.observability import (
+    debug_event,
+    exception_event,
+    info_event,
+    observation_scope,
+    warning_event,
+)
 
 if TYPE_CHECKING:
     from rag2f.core.rag2f import RAG2F
@@ -91,7 +98,7 @@ class Plugin:
 
         # plugin id is just the folder name
         self._id: str = os.path.basename(os.path.normpath(plugin_path))
-        logger.debug(f"Plugin created with path '{plugin_path}' -> id '{self._id}'")
+        debug_event(logger, "plugin_initialized", plugin_id=self._id, plugin_path=plugin_path)
 
         # plugin manifest (name, decription, thumb, etc.)
         self._manifest: PluginManifest = self._load_manifest()
@@ -109,30 +116,40 @@ class Plugin:
 
     def activate(self):
         """Activate the plugin: install deps, load hooks/overrides, run activation."""
-        # install plugin requirements on activation
-        try:
-            self._install_requirements()
-        except Exception as e:
-            raise e
+        with observation_scope(plugin_id=self._id, plugin_path=self._path):
+            info_event(logger, "plugin_activation_start")
+            try:
+                self._install_requirements()
+                self._load_decorated_functions()
 
-        # Load of hook and ovverided functions
-        self._load_decorated_functions()
+                if "activated" in self.overrides:
+                    self.overrides["activated"].function(self, self._rag2f_instance)
+            except Exception as e:
+                exception_event(
+                    logger,
+                    "plugin_activation_failed",
+                    error_type=type(e).__name__,
+                )
+                raise
 
-        # run custom activation from @plugin
-        if "activated" in self.overrides:
-            self.overrides["activated"].function(self, self._rag2f_instance)
-
-        self._active = True
+            self._active = True
+            info_event(
+                logger,
+                "plugin_activation_complete",
+                hook_count=len(self._hooks),
+                override_count=len(self._plugin_overrides),
+            )
 
     def deactivate(self):
         """Deactivate the plugin: run deactivation and unload hooks/overrides."""
-        # run custom deactivation from @plugin
-        if "deactivated" in self.overrides:
-            self.overrides["deactivated"].function(self, self._rag2f_instance)
+        with observation_scope(plugin_id=self._id, plugin_path=self._path):
+            info_event(logger, "plugin_deactivation_start")
+            if "deactivated" in self.overrides:
+                self.overrides["deactivated"].function(self, self._rag2f_instance)
 
-        # UnLoad of hook and ovverided functions
-        self._unload_decorated_functions()
-        self._active = False
+            self._unload_decorated_functions()
+            self._active = False
+            info_event(logger, "plugin_deactivation_complete")
 
     def _module_name_for_file(self, py_file: str) -> str:
         rel = os.path.relpath(py_file, start=self._path)
@@ -143,10 +160,11 @@ class Plugin:
         plugin_path = Path(self._path)
         path_str = str(plugin_path)
         is_pip_like = "site-packages" in path_str or "dist-packages" in path_str
-        logger.info(
-            "Loading plugin manifest for '%s' (source=%s)",
-            self._id,
-            "pip" if is_pip_like else "fs",
+        info_event(
+            logger,
+            "plugin_manifest_load_start",
+            plugin_id=self._id,
+            plugin_source="pip" if is_pip_like else "fs",
         )
 
         plugin_json_paths = self._discover_metadata_files(plugin_path, "plugin.json")
@@ -155,11 +173,12 @@ class Plugin:
         plugin_json_path = plugin_json_paths[0] if plugin_json_paths else None
         pyproject_path = pyproject_paths[0] if pyproject_paths else None
 
-        logger.info(
-            "Discovered metadata for '%s': plugin.json=%s, pyproject.toml=%s",
-            self._id,
-            str(plugin_json_path) if plugin_json_path else "<missing>",
-            str(pyproject_path) if pyproject_path else "<missing>",
+        info_event(
+            logger,
+            "plugin_manifest_metadata_discovered",
+            plugin_id=self._id,
+            has_plugin_json=plugin_json_path is not None,
+            has_pyproject=pyproject_path is not None,
         )
 
         base: dict = {}
@@ -191,12 +210,17 @@ class Plugin:
             distribution = self._resolve_distribution_for_plugin(plugin_path)
             if distribution is not None:
                 dist_name = distribution.metadata.get("Name", "<unknown>")
-                logger.info("Resolved distribution for '%s': %s", self._id, dist_name)
+                info_event(
+                    logger,
+                    "plugin_distribution_resolved",
+                    plugin_id=self._id,
+                    distribution_name=dist_name,
+                )
 
                 dist_plugin_json = self._find_dist_file(distribution, "plugin.json")
                 if plugin_json_path is None and dist_plugin_json is not None:
-                    logger.info(
-                        "Using plugin.json from distribution (FS missing): %s", dist_plugin_json
+                    info_event(
+                        logger, "plugin_manifest_distribution_json_used", plugin_id=self._id
                     )
                     data = self._read_json_file(Path(dist_plugin_json))
                     base = self._map_plugin_json_to_manifest(data)
@@ -208,8 +232,10 @@ class Plugin:
 
                 dist_pyproject = self._find_dist_file(distribution, "pyproject.toml")
                 if pyproject_path is None and dist_pyproject is not None:
-                    logger.info(
-                        "Using pyproject.toml from distribution (FS missing): %s", dist_pyproject
+                    info_event(
+                        logger,
+                        "plugin_manifest_distribution_pyproject_used",
+                        plugin_id=self._id,
                     )
                     data = self._read_toml_file(Path(dist_pyproject))
                     override = self._map_pyproject_to_manifest(data)
@@ -219,7 +245,7 @@ class Plugin:
                 dist_requires = [r for r in (distribution.requires or []) if isinstance(r, str)]
                 requirements.extend(dist_requires)
             else:
-                logger.warning("No distribution metadata found for '%s'", self._id)
+                warning_event(logger, "plugin_distribution_missing", plugin_id=self._id)
 
         merged = PluginManifest.override_if_non_empty(
             base,
@@ -237,10 +263,11 @@ class Plugin:
             }
         )
         if overridden_by_pyproject:
-            logger.info(
-                "Pyproject overrides for '%s': %s",
-                self._id,
-                ", ".join(overridden_by_pyproject),
+            info_event(
+                logger,
+                "plugin_manifest_pyproject_overrides",
+                plugin_id=self._id,
+                override_count=len(overridden_by_pyproject),
             )
 
         if is_pip_like and fallback:
@@ -256,21 +283,18 @@ class Plugin:
                 }
             )
             if filled:
-                logger.info(
-                    "Distribution metadata fallback filled for '%s': %s",
-                    self._id,
-                    ", ".join(filled),
+                info_event(
+                    logger,
+                    "plugin_manifest_distribution_fallback",
+                    plugin_id=self._id,
+                    field_count=len(filled),
                 )
 
         # name resolution: try sources, else humanize id
         normalized_name = PluginManifest.normalize_str(merged.get("name"))
         if normalized_name is None:
             merged["name"] = inflection.humanize(self.id)
-            logger.warning(
-                "Manifest name missing for '%s'; defaulting to humanized id '%s'",
-                self._id,
-                merged["name"],
-            )
+            warning_event(logger, "plugin_manifest_name_defaulted", plugin_id=self._id)
 
         if not json_bounds_set:
             min_v, max_v, origin = self._derive_rag2f_bounds_from_requirements(requirements)
@@ -287,12 +311,13 @@ class Plugin:
             ):
                 merged["max_rag2f_version"] = max_v
 
-        logger.info(
-            "rag2f bounds for '%s': origin=%s min=%s max=%s",
-            self._id,
-            rag2f_bounds_origin,
-            merged.get("min_rag2f_version", "Unknown"),
-            merged.get("max_rag2f_version", "Unknown"),
+        info_event(
+            logger,
+            "plugin_manifest_load_complete",
+            plugin_id=self._id,
+            bounds_origin=rag2f_bounds_origin,
+            min_rag2f_version=merged.get("min_rag2f_version", "Unknown"),
+            max_rag2f_version=merged.get("max_rag2f_version", "Unknown"),
         )
 
         return PluginManifest(**merged)
@@ -641,7 +666,12 @@ class Plugin:
             # Hook metadata (like plugin_id) is not accidentally overwritten by duplicate imports.
             module_name = self._module_name_for_file(py_file)
 
-            logger.debug(f"Import module {module_name} from {py_file}")
+            debug_event(
+                logger,
+                "plugin_module_import_prepare",
+                plugin_id=self._id,
+                module_name=module_name,
+            )
 
             # save a reference to decorated functions
             try:
@@ -666,7 +696,12 @@ class Plugin:
                 # of loading it again. This ensures decorator code runs only once.
                 # ====================================================================
                 if module_name in sys.modules:
-                    logger.debug(f"Module {module_name} already loaded, reusing existing module")
+                    debug_event(
+                        logger,
+                        "plugin_module_reused",
+                        plugin_id=self._id,
+                        module_name=module_name,
+                    )
                     plugin_module = sys.modules[module_name]
                 else:
                     # Load module directly from file path
@@ -686,11 +721,19 @@ class Plugin:
                 plugin_overrides += getmembers(plugin_module, self._is_rag2f_plugin_override)
 
             except Exception as e:
-                logger.error(
-                    f"Error in {py_file}. Unable to load plugin {self._id}: {type(e).__name__}: {e}",
-                    exc_info=True,
+                exception_event(
+                    logger,
+                    "plugin_module_load_failed",
+                    plugin_id=self._id,
+                    module_name=module_name,
+                    error_type=type(e).__name__,
                 )
-                logger.warning(self.plugin_specific_error_message())
+                warning_event(
+                    logger,
+                    "plugin_module_support_hint",
+                    plugin_id=self._id,
+                    support_hint=self.plugin_specific_error_message(),
+                )
 
         # clean and enrich instances
         self._hooks = list(map(self._clean_and_enrich_hook, hooks))
@@ -714,7 +757,7 @@ class Plugin:
         ]
 
         for name in to_remove:
-            logger.debug(f"Remove module {name}")
+            debug_event(logger, "plugin_module_removed", plugin_id=self._id, module_name=name)
             sys.modules.pop(name, None)
 
         self._hooks = []
@@ -752,10 +795,14 @@ class Plugin:
         # when the same hook is loaded from different import paths
         if h.plugin_id is None:
             h.plugin_id = self._id
-            logger.debug(f"Set plugin_id '{self._id}' for hook '{h.name}'")
+            debug_event(logger, "plugin_hook_bound", plugin_id=self._id, hook_name=h.name)
         else:
-            logger.debug(
-                f"Hook '{h.name}' already has plugin_id '{h.plugin_id}', skipping (current plugin: '{self._id}')"
+            debug_event(
+                logger,
+                "plugin_hook_already_bound",
+                plugin_id=h.plugin_id,
+                hook_name=h.name,
+                current_plugin_id=self._id,
             )
         return h
 

@@ -267,7 +267,7 @@ pre-commit run --all-files
 ---
 
 # 🔧 Observability & Logging (Python)
-> Instrument new Python code to make execution **observable** and to support analysis, troubleshooting, and system evolution. Always consider whether it’s important to have feedback or to monitor that area of the code and its state, and apply a solution that makes it possible to do so.
+Instrument new Python code to make execution **observable** and to support analysis, troubleshooting, and system evolution. Always consider whether it’s important to have feedback or to monitor that area of the code and its state, and apply observability.
 
 ## Language policy (interaction vs. code)
 - In user interactions (chat, issues, tickets), **use the requester's language**.  

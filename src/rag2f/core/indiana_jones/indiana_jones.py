@@ -23,6 +23,7 @@ from rag2f.core.dto.result_dto import StatusCode, StatusDetail
 from rag2f.core.indiana_jones.exceptions import (
     RetrievalError,
 )
+from rag2f.core.observability import debug_event, exception_event, observation_scope
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,7 @@ class IndianaJones:
             rag2f_instance: Optional RAG2F instance used to invoke hooks.
         """
         self.rag2f = rag2f_instance
-        logger.debug("IndianaJones created")
+        debug_event(logger, "indiana_jones_initialized", has_rag2f=self.rag2f is not None)
 
     def execute_retrieve(
         self,
@@ -78,40 +79,58 @@ class IndianaJones:
         Raises:
             RetrievalError: Only for system errors (backend crash, timeout).
         """
-        logger.debug(
-            "IndianaJones.execute_retrieve query=%r k=%d return_mode=%s for_synthesize=%s",
-            query,
-            k,
-            return_mode.value,
-            for_synthesize,
-        )
-
-        if query is None or not str(query).strip():
-            return RetrieveResult.fail(
-                StatusDetail(code=StatusCode.EMPTY, message="Query is empty")
+        with observation_scope(operation="indiana_jones.execute_retrieve"):
+            query_length = len(query) if query is not None else 0
+            debug_event(
+                logger,
+                "indiana_jones_retrieve_start",
+                query_length=query_length,
+                k=k,
+                return_mode=return_mode.value,
+                for_synthesize=for_synthesize,
+                kwargs_count=len(kwargs),
             )
 
-        try:
-            result = RetrieveResult.success(query=query)
-            if self.rag2f:
-                result = self.rag2f.morpheus.execute_hook(
-                    "indiana_jones_retrieve",
-                    result,
-                    query,
-                    k,
-                    return_mode,
-                    for_synthesize,
-                    rag2f=self.rag2f,
+            if query is None or not str(query).strip():
+                debug_event(logger, "indiana_jones_retrieve_empty")
+                return RetrieveResult.fail(
+                    StatusDetail(code=StatusCode.EMPTY, message="Query is empty")
                 )
-        except Exception as e:
-            logger.error("IndianaJones retrieval failed: %s", e)
-            raise RetrievalError(
-                f"Retrieval failed: {e}",
-                context={"query": query, "k": k, "kwargs": kwargs},
-            ) from e
 
-        logger.debug("IndianaJones.execute_retrieve returned %d items", len(result.items))
-        return result
+            try:
+                result = RetrieveResult.success(query=query)
+                if self.rag2f:
+                    result = self.rag2f.morpheus.execute_hook(
+                        "indiana_jones_retrieve",
+                        result,
+                        query,
+                        k,
+                        return_mode,
+                        for_synthesize,
+                        rag2f=self.rag2f,
+                    )
+            except Exception as e:
+                exception_event(
+                    logger,
+                    "indiana_jones_retrieve_failed",
+                    query_length=query_length,
+                    k=k,
+                    return_mode=return_mode.value,
+                    for_synthesize=for_synthesize,
+                    error_type=type(e).__name__,
+                )
+                raise RetrievalError(
+                    f"Retrieval failed: {e}",
+                    context={"query": query, "k": k, "kwargs": kwargs},
+                ) from e
+
+            debug_event(
+                logger,
+                "indiana_jones_retrieve_complete",
+                item_count=len(result.items),
+                status=result.status,
+            )
+            return result
 
     def execute_search(
         self,
@@ -140,48 +159,66 @@ class IndianaJones:
         Raises:
             RetrievalError: Only for system errors (backend crash, timeout).
         """
-        logger.debug(
-            "IndianaJones.execute_search query=%r k=%d return_mode=%s", query, k, return_mode.value
-        )
+        with observation_scope(operation="indiana_jones.execute_search"):
+            query_length = len(query) if query is not None else 0
+            debug_event(
+                logger,
+                "indiana_jones_search_start",
+                query_length=query_length,
+                k=k,
+                return_mode=return_mode.value,
+                kwargs_count=len(kwargs),
+            )
 
-        # Step 1: Retrieve (always WITH_ITEMS internally for synthesis)
-        retrieve_result = self.execute_retrieve(
-            query, k, return_mode=ReturnMode.WITH_ITEMS, for_synthesize=True, **kwargs
-        )
+            retrieve_result = self.execute_retrieve(
+                query, k, return_mode=ReturnMode.WITH_ITEMS, for_synthesize=True, **kwargs
+            )
 
-        if retrieve_result.is_error():
-            return SearchResult.fail(retrieve_result.detail)
-
-        # Step 2: Synthesize via hook
-        try:
-            result = SearchResult.success(query=query, items=retrieve_result.items)
-            if self.rag2f:
-                result = self.rag2f.morpheus.execute_hook(
-                    "indiana_jones_synthesize",
-                    result,
-                    retrieve_result,
-                    return_mode,
-                    kwargs,
-                    rag2f=self.rag2f,
+            if retrieve_result.is_error():
+                debug_event(
+                    logger,
+                    "indiana_jones_search_retrieve_error",
+                    detail_code=retrieve_result.detail.code if retrieve_result.detail else None,
                 )
+                return SearchResult.fail(retrieve_result.detail)
 
-            # Apply return_mode policy: drop items if MINIMAL
-            if return_mode == ReturnMode.MINIMAL:
-                result.items = None
+            try:
+                result = SearchResult.success(query=query, items=retrieve_result.items)
+                if self.rag2f:
+                    result = self.rag2f.morpheus.execute_hook(
+                        "indiana_jones_synthesize",
+                        result,
+                        retrieve_result,
+                        return_mode,
+                        kwargs,
+                        rag2f=self.rag2f,
+                    )
 
-        except Exception as e:
-            logger.error("IndianaJones synthesis failed: %s", e)
-            raise RetrievalError(
-                f"Search failed: {e}",
-                context={"query": query, "k": k, "kwargs": kwargs},
-            ) from e
+                if return_mode == ReturnMode.MINIMAL:
+                    result.items = None
 
-        logger.debug(
-            "IndianaJones.execute_search completed: response_len=%d used_sources=%d",
-            len(result.response),
-            len(result.used_source_ids),
-        )
-        return result
+            except Exception as e:
+                exception_event(
+                    logger,
+                    "indiana_jones_search_failed",
+                    query_length=query_length,
+                    k=k,
+                    return_mode=return_mode.value,
+                    error_type=type(e).__name__,
+                )
+                raise RetrievalError(
+                    f"Search failed: {e}",
+                    context={"query": query, "k": k, "kwargs": kwargs},
+                ) from e
+
+            debug_event(
+                logger,
+                "indiana_jones_search_complete",
+                response_length=len(result.response),
+                used_source_count=len(result.used_source_ids),
+                returned_items=result.items is not None,
+            )
+            return result
 
 
 RetrieveManager = IndianaJones

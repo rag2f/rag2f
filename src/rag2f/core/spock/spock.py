@@ -24,6 +24,15 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from rag2f.core.observability import (
+    debug_event,
+    exception_event,
+    info_event,
+    observation_scope,
+    redact_value,
+    warning_event,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -50,7 +59,7 @@ class Spock:
         self._config_path = config_path
         self._config = self.default_config()
         self._loaded = False
-        logger.debug("Spock instance created with config_path=%s", config_path)
+        debug_event(logger, "spock_initialized", config_path=config_path)
 
     @staticmethod
     def default_config() -> dict[str, Any]:
@@ -69,39 +78,40 @@ class Spock:
         3. Provided config (if any)
         4. Default values
         """
-        if self._loaded and config is None:
-            logger.debug("Configuration already loaded, skipping reload")
-            return
+        with observation_scope(component="spock.load"):
+            if self._loaded and config is None:
+                debug_event(logger, "spock_load_skipped")
+                return
 
-        if self._loaded:
-            logger.debug("Configuration already loaded; reloading with explicit config override")
+            if self._loaded:
+                debug_event(logger, "spock_load_override_requested")
 
-        self._config = self.default_config()
+            self._config = self.default_config()
 
-        # Load from JSON file if provided
-        if self._config_path:
-            self._load_from_json()
+            if self._config_path:
+                self._load_from_json()
 
-        if config is not None:
-            self._load_from_config_object(config)
+            if config is not None:
+                self._load_from_config_object(config)
 
-        # Override/merge with environment variables
-        self._load_from_env()
+            self._load_from_env()
 
-        self._loaded = True
-        logger.info("Configuration loaded successfully")
-        logger.debug(
-            "Final config structure: rag2f keys=%s, plugins=%s",
-            list(self._config.get("rag2f", {}).keys()),
-            list(self._config.get("plugins", {}).keys()),
-        )
+            self._loaded = True
+            info_event(logger, "spock_load_complete", config_path=self._config_path)
+            if logger.isEnabledFor(logging.DEBUG):
+                debug_event(
+                    logger,
+                    "spock_config_structure",
+                    rag2f_keys=sorted(self._config.get("rag2f", {}).keys()),
+                    plugin_ids=sorted(self._config.get("plugins", {}).keys()),
+                )
 
     def _load_from_json(self) -> None:
         """Load configuration from JSON file."""
         try:
             config_file = Path(self._config_path)
             if not config_file.exists():
-                logger.warning("Config file not found: %s", self._config_path)
+                warning_event(logger, "spock_json_missing", config_path=self._config_path)
                 return
 
             with open(config_file, encoding="utf-8") as f:
@@ -123,13 +133,23 @@ class Spock:
                     raise ValueError("'plugins' section must be an object")
                 self._config["plugins"] = deepcopy(json_config["plugins"])
 
-            logger.info("Loaded configuration from JSON: %s", self._config_path)
+            info_event(logger, "spock_json_loaded", config_path=self._config_path)
 
         except json.JSONDecodeError as e:
-            logger.error("Invalid JSON in config file %s: %s", self._config_path, e)
+            exception_event(
+                logger,
+                "spock_json_invalid",
+                config_path=self._config_path,
+                error_type=type(e).__name__,
+            )
             raise ValueError(f"Invalid JSON configuration file: {e}") from e
         except Exception as e:
-            logger.error("Error loading config file %s: %s", self._config_path, e)
+            exception_event(
+                logger,
+                "spock_json_load_failed",
+                config_path=self._config_path,
+                error_type=type(e).__name__,
+            )
             raise
 
     def _load_from_config_object(self, config: dict[str, Any]) -> None:
@@ -170,23 +190,39 @@ class Spock:
             key_path = env_key[len(prefix) :].split(self.ENV_SEPARATOR)
 
             if len(key_path) < 2:
-                logger.warning("Invalid env var format (too short): %s", env_key)
+                warning_event(logger, "spock_env_invalid_format", env_key=env_key)
                 continue
 
             section = key_path[0].lower()  # 'rag2f' or 'plugins'
 
-            # Validate section
             if section not in ("rag2f", "plugins"):
-                logger.warning("Invalid section in env var %s: %s", env_key, section)
+                warning_event(
+                    logger,
+                    "spock_env_invalid_section",
+                    env_key=env_key,
+                    section=section,
+                )
                 continue
 
-            # Parse and set the value
             try:
                 parsed_value = self._parse_env_value(env_value)
                 self._set_nested_value(section, key_path[1:], parsed_value)
-                logger.debug("Set from env: %s = %s", env_key, parsed_value)
+                debug_event(
+                    logger,
+                    "spock_env_applied",
+                    env_key=env_key,
+                    section=section,
+                    config_path=".".join(part.lower() for part in key_path[1:]),
+                    value_preview=redact_value(env_key, parsed_value),
+                    value_type=type(parsed_value).__name__,
+                )
             except Exception as e:
-                logger.error("Error processing env var %s: %s", env_key, e)
+                exception_event(
+                    logger,
+                    "spock_env_processing_failed",
+                    env_key=env_key,
+                    error_type=type(e).__name__,
+                )
 
     def _parse_env_value(self, value: str) -> Any:
         """Parse environment variable value with type inference.
@@ -221,7 +257,7 @@ class Spock:
         elif section == "plugins":
             # For plugins section, first key is plugin_id: [PLUGIN_ID, KEY, SUBKEY]
             if len(path) < 2:
-                logger.warning("Plugin env var too short: %s", path)
+                warning_event(logger, "spock_plugin_env_too_short", config_path=".".join(path))
                 return
 
             plugin_id = path[0].lower()
@@ -288,7 +324,13 @@ class Spock:
             self.load()
 
         self._config["rag2f"][key] = value
-        logger.debug("Set rag2f config: %s = %s", key, value)
+        debug_event(
+            logger,
+            "spock_rag2f_config_set",
+            config_key=key,
+            value_preview=redact_value(key, value),
+            value_type=type(value).__name__,
+        )
 
     def set_plugin_config(self, plugin_id: str, key: str, value: Any) -> None:
         """Set plugin configuration (runtime only, not persisted).
@@ -305,7 +347,14 @@ class Spock:
             self._config["plugins"][plugin_id] = {}
 
         self._config["plugins"][plugin_id][key] = value
-        logger.debug("Set plugin config: %s.%s = %s", plugin_id, key, value)
+        debug_event(
+            logger,
+            "spock_plugin_config_set",
+            plugin_id=plugin_id,
+            config_key=key,
+            value_preview=redact_value(key, value),
+            value_type=type(value).__name__,
+        )
 
     def get_all_config(self) -> dict[str, Any]:
         """Get complete configuration snapshot.
@@ -325,7 +374,7 @@ class Spock:
         """
         self._loaded = False
         self.load()
-        logger.info("Configuration reloaded")
+        info_event(logger, "spock_reload_complete", config_path=self._config_path)
 
     @property
     def config_path(self) -> str | None:

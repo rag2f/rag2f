@@ -2,6 +2,8 @@
 
 rag2f is a plugin-first, entry-point-driven kernel for composing Retrieval-Augmented Generation systems. It provides a small set of registries and hooks so you can assemble your own ingest -> embed -> store -> retrieve -> answer flow without being forced into a single pipeline shape.
 
+The project is also Agent Code oriented: the core favors explicit contracts, narrow execution boundaries, and structured observability so code agents can inspect behavior, correlate failures, and repair issues with less guesswork.
+
 ## What rag2f is not
 
 rag2f is not a turnkey RAG pipeline. It intentionally does not implement a full end-to-end app. Pipelines live in plugins or in your own application.
@@ -172,6 +174,17 @@ A useful mental model is "registries + hooks":
 - The core stays small and stable; complexity lives at the edges.
 
 This lets you build a RAG pipeline that fits your constraints without forcing other teams to adopt the same stack.
+
+## Agent-oriented observability
+
+rag2f treats observability as an engineering feature, not an afterthought.
+
+- Core execution paths emit structured key/value logs.
+- Correlation context is propagated with the shared helper in `rag2f.core.observability`.
+- Failure paths prefer stack traces with sanitized context.
+- Secrets and sensitive ENV values must never be logged in clear text.
+
+This matters both for humans and for code agents: if a bug appears at a hook, plugin, task, or configuration boundary, logs should make the execution path and failure mode inspectable without broad repository exploration.
 
 ## Development
 

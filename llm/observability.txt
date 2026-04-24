@@ -1,0 +1,141 @@
+# Observability in RAG2F
+
+Guide to the observability model used by RAG2F core and plugins.
+
+## Why observability matters here
+
+RAG2F is plugin-first. Many failures happen at boundaries:
+
+- core -> plugin activation
+- core -> hook dispatch
+- task queue -> hook execution
+- configuration -> runtime behavior
+- repository/embedder registration -> downstream usage
+
+For that reason, observability is part of the framework contract, not an optional extra. A code agent should be able to inspect logs and reconstruct what happened without broad repository exploration.
+
+## Current helper
+
+Use the helper in `rag2f.core.observability`:
+
+```python
+from rag2f.core.observability import (
+    debug_event,
+    exception_event,
+    info_event,
+    observation_scope,
+    warning_event,
+)
+```
+
+### What it provides
+
+- `observation_scope(...)` binds context fields for the current execution flow
+- automatic `correlation_id` creation when missing
+- structured `event=... key=value ...` logging
+- secret redaction for sensitive keys
+- `exception_event(...)` for full stack traces with structured fields
+
+## Correlation context
+
+Use `observation_scope(...)` at entry points and boundaries:
+
+```python
+with observation_scope(component="rag2f.create"):
+    debug_event(logger, "rag2f_create_start")
+```
+
+Nested scopes inherit existing context and can add fields:
+
+```python
+with observation_scope(plugin_id=plugin.id, hook_name=hook.name):
+    debug_event(logger, "hook_execute_start", hook_priority=hook.priority)
+```
+
+Typical fields:
+
+- `correlation_id`
+- `plugin_id`
+- `hook_name`
+- `track_id`
+- `task_id`
+- `root_id`
+- `worker_id`
+- `status`
+- `error_type`
+
+## Log level policy
+
+- `debug`: detailed execution flow, counts, branch decisions, hook dispatch, cache refresh, diagnostic context
+- `info`: important lifecycle milestones such as successful config load, plugin activation, or task backend initialization
+- `warning`: recoverable anomalies, degraded paths, duplicate registrations, missing optional resources
+- `error`: failures without stack trace when the failure is already fully represented
+- `exception`: failures where stack trace is required to diagnose the root cause
+
+Rule of thumb:
+- bulky or high-frequency logs belong at `debug`
+- stack traces belong to `exception_event(...)`
+- do not upgrade routine control-flow messages to `info`
+
+## Expensive debug logs
+
+If the log needs extra work, guard it:
+
+```python
+if logger.isEnabledFor(logging.DEBUG):
+    debug_event(logger, "cache_refresh_complete", total_hooks=sum(len(v) for v in hooks.values()))
+```
+
+Do this for:
+
+- large list sorting or counting
+- serialization of nested structures
+- derived summaries that are not already available
+
+## Secret handling
+
+Never log:
+
+- API keys
+- bearer tokens
+- passwords
+- credentials
+- raw environment variable values
+- full payloads that may contain user or provider data
+
+The observability helper redacts common sensitive keys automatically, but the caller must still avoid logging unnecessary payload data.
+
+## What plugins should do
+
+Plugins should follow the same model:
+
+- bind plugin-specific context when crossing into plugin code
+- prefer `debug_event(...)` over free-form debug strings
+- use `exception_event(...)` for hook failures that need tracebacks
+- avoid logging full external request or response bodies
+
+Minimal example:
+
+```python
+from rag2f.core.observability import debug_event, exception_event, observation_scope
+
+@hook("handle_text_foreground", priority=10)
+def my_hook(done, track_id, text, *, rag2f):
+    with observation_scope(track_id=track_id):
+        try:
+            debug_event(logger, "my_plugin_handle_text_start", text_length=len(text))
+            return True
+        except Exception as exc:
+            exception_event(logger, "my_plugin_handle_text_failed", error_type=type(exc).__name__)
+            raise
+```
+
+## Agent-oriented expectation
+
+When changing code in RAG2F, a code agent should preserve or improve diagnosability:
+
+- add logs at important boundaries and failure points
+- keep fields stable and machine-readable
+- propagate correlation context from entry points
+- avoid secret leakage
+- prefer local, useful diagnostics over verbose narrative messages

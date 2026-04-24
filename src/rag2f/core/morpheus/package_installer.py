@@ -14,6 +14,14 @@ import tempfile
 
 from packaging.requirements import Requirement
 
+from rag2f.core.observability import (
+    debug_event,
+    exception_event,
+    info_event,
+    observation_scope,
+    warning_event,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -89,35 +97,29 @@ class PackageInstaller:
 
     def install(self) -> None:
         """Install plugin dependencies if a manifest file is present."""
-        # Prefer pyproject.toml over requirements.txt
-        base_cmd, is_uv = self.package_manager
-        if base_cmd is None:
-            logger.warning(
-                f"No package manager found (uv or pip). Skipping requirements installation for plugin {self.plugin_id}"
-            )
-            return
+        with observation_scope(plugin_id=self.plugin_id, plugin_path=self.plugin_path):
+            base_cmd, is_uv = self.package_manager
+            if base_cmd is None:
+                warning_event(logger, "plugin_requirements_tool_missing")
+                return
 
-        if os.path.exists(self.pyproject_path):
-            self._install_from_pyproject(base_cmd, is_uv)
-        elif os.path.exists(self.requirements_path):
-            self._install_from_requirements(base_cmd, is_uv)
-        else:
-            logger.debug(
-                f"No pyproject.toml or requirements.txt found for plugin {self.plugin_id}"
-            )
+            if os.path.exists(self.pyproject_path):
+                self._install_from_pyproject(base_cmd, is_uv)
+            elif os.path.exists(self.requirements_path):
+                self._install_from_requirements(base_cmd, is_uv)
+            else:
+                debug_event(logger, "plugin_requirements_manifest_missing")
 
     def _install_from_pyproject(self, base_cmd: list, is_uv: bool) -> None:
-        # Install dependencies from pyproject.toml using pip install -e or uv pip install -e
-        logger.info(f"Installing plugin {self.plugin_id} from pyproject.toml")
+        info_event(logger, "plugin_requirements_install_from_pyproject", tool=base_cmd[0])
         install_cmd = self._build_install_command(base_cmd, is_uv, editable_path=self.plugin_path)
         self._run_install(install_cmd)
 
     def _install_from_requirements(self, base_cmd: list, is_uv: bool) -> None:
-        # Install dependencies from requirements.txt, filtering already installed packages
-        logger.info(f"Checking requirements for plugin {self.plugin_id}")
+        info_event(logger, "plugin_requirements_check_start", tool=base_cmd[0])
         filtered_requirements = self._filter_requirements()
         if not filtered_requirements:
-            logger.debug(f"All requirements already satisfied for plugin {self.plugin_id}")
+            debug_event(logger, "plugin_requirements_already_satisfied")
             return
         tmp_file = None
         try:
@@ -129,7 +131,11 @@ class PackageInstaller:
                 try:
                     os.unlink(tmp_file)
                 except Exception as e:
-                    logger.warning(f"Failed to remove temporary file {tmp_file}: {e}")
+                    warning_event(
+                        logger,
+                        "plugin_requirements_tempfile_cleanup_failed",
+                        error_type=type(e).__name__,
+                    )
 
     def _filter_requirements(self) -> list[str]:
         """Filter requirements by excluding already-installed packages."""
@@ -139,21 +145,26 @@ class PackageInstaller:
             with open(self.requirements_path) as f:
                 for line in f:
                     req = line.strip()
-                    # Skip empty lines and comments
                     if not req or req.startswith("#"):
                         continue
                     try:
                         parsed = Requirement(req)
                         package_name = parsed.name.lower()
                         if package_name not in self.installed_packages:
-                            logger.debug(f"\t{package_name} needs to be installed")
                             filtered.append(req)
-                        else:
-                            logger.debug(f"\t{package_name} is already installed")
                     except Exception as e:
-                        logger.warning(f"Invalid requirement '{req}': {e}")
+                        warning_event(
+                            logger,
+                            "plugin_requirements_invalid_entry",
+                            error_type=type(e).__name__,
+                        )
         except Exception as e:
-            logger.error(f"Error reading requirements file for plugin {self.plugin_id}: {e}")
+            exception_event(
+                logger,
+                "plugin_requirements_read_failed",
+                error_type=type(e).__name__,
+            )
+        debug_event(logger, "plugin_requirements_filtered", requirement_count=len(filtered))
         return filtered
 
     def _create_temp_requirements(self, requirements: list[str]) -> str:
@@ -172,15 +183,11 @@ class PackageInstaller:
         editable_path: str | None = None,
         requirements_file: str | None = None,
     ) -> list:
-        # Build the install command based on package manager and options
         cmd = base_cmd.copy()
         cmd.append("install")
-        # Add --system flag for uv when not in virtual environment
         if is_uv and not self.in_virtual_env:
             cmd.append("--system")
-            logger.debug(
-                f"Using uv with --system flag (no virtual environment detected) for plugin {self.plugin_id}"
-            )
+            debug_event(logger, "plugin_requirements_using_uv_system")
         cmd.append("--no-cache-dir")
         if editable_path:
             cmd.extend(["-e", editable_path])
@@ -189,21 +196,37 @@ class PackageInstaller:
         return cmd
 
     def _run_install(self, cmd: list) -> None:
-        # Execute the installation command
-        logger.info(f"Installing requirements for plugin {self.plugin_id}")
-        logger.debug(f"Running command: {' '.join(cmd)}")
+        info_event(
+            logger,
+            "plugin_requirements_install_start",
+            tool=cmd[0],
+            editable="-e" in cmd,
+            uses_requirements="-r" in cmd,
+        )
         try:
             result = subprocess.run(  # noqa: S603
                 cmd, check=True, capture_output=True, text=True
             )
-            logger.debug(f"Installation output: {result.stdout}")
-            logger.info(f"Successfully installed requirements for plugin {self.plugin_id}")
+            debug_event(
+                logger,
+                "plugin_requirements_install_complete",
+                return_code=result.returncode,
+                stdout_length=len(result.stdout),
+                stderr_length=len(result.stderr),
+            )
+            info_event(logger, "plugin_requirements_install_succeeded")
         except subprocess.CalledProcessError as e:
-            logger.error(f"Error while installing plugin {self.plugin_id} requirements: {e}")
-            logger.error(f"stderr: {e.stderr if hasattr(e, 'stderr') else 'N/A'}")
+            exception_event(
+                logger,
+                "plugin_requirements_install_failed",
+                return_code=e.returncode,
+                stderr_length=len(e.stderr or ""),
+            )
             raise
         except Exception as e:
-            logger.error(
-                f"Unexpected error during requirements installation for plugin {self.plugin_id}: {e}"
+            exception_event(
+                logger,
+                "plugin_requirements_install_crashed",
+                error_type=type(e).__name__,
             )
             raise

@@ -28,6 +28,13 @@ from rag2f.core.flux_capacitor.task_models import (
     TaskEnvelope,
     TaskStatusView,
 )
+from rag2f.core.observability import (
+    debug_event,
+    error_event,
+    exception_event,
+    observation_scope,
+    warning_event,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +86,11 @@ class FluxCapacitor:
         self._default_store_name: str | None = None
         self._default_queue_name: str | None = None
         self._config = FluxCapacitorConfig.from_spock(self._spock)
-        logger.debug("FluxCapacitor instance created.")
+        debug_event(
+            logger,
+            "flux_capacitor_initialized",
+            has_payload_loader=self._payload_loader is not None,
+        )
 
     # ------------------------------------------------------------------
     # Registration
@@ -92,20 +103,18 @@ class FluxCapacitor:
             raise TypeError("Store does not implement BaseTaskStore")
         if name in self._stores:
             if self._stores[name] is store:
-                logger.warning(
-                    "Store '%s' already registered with the same instance; skipping.", name
-                )
+                warning_event(logger, "flux_store_register_duplicate", store_name=name)
                 return
             raise ValueError(f"Override not allowed for already registered store: {name!r}")
         self._stores[name] = store
-        logger.debug("Task store '%s' registered.", name)
+        debug_event(logger, "flux_store_registered", store_name=name)
 
     def unregister_store(self, name: str) -> bool:
         if name in self._stores:
             del self._stores[name]
             if self._default_store_name == name:
                 self._default_store_name = None
-            logger.debug("Task store '%s' unregistered.", name)
+            debug_event(logger, "flux_store_unregistered", store_name=name)
             return True
         return False
 
@@ -116,20 +125,18 @@ class FluxCapacitor:
             raise TypeError("Queue does not implement BaseTaskQueue")
         if name in self._queues:
             if self._queues[name] is queue:
-                logger.warning(
-                    "Queue '%s' already registered with the same instance; skipping.", name
-                )
+                warning_event(logger, "flux_queue_register_duplicate", queue_name=name)
                 return
             raise ValueError(f"Override not allowed for already registered queue: {name!r}")
         self._queues[name] = queue
-        logger.debug("Task queue '%s' registered.", name)
+        debug_event(logger, "flux_queue_registered", queue_name=name)
 
     def unregister_queue(self, name: str) -> bool:
         if name in self._queues:
             del self._queues[name]
             if self._default_queue_name == name:
                 self._default_queue_name = None
-            logger.debug("Task queue '%s' unregistered.", name)
+            debug_event(logger, "flux_queue_unregistered", queue_name=name)
             return True
         return False
 
@@ -200,6 +207,19 @@ class FluxCapacitor:
         )
         store.create_task(task)
         self._publish_task(task)
+        with observation_scope(
+            correlation_id=root_id,
+            task_id=task_id,
+            root_id=root_id,
+            plugin_id=plugin_id,
+            hook_name=resolved_hook,
+        ):
+            debug_event(
+                logger,
+                "flux_task_enqueued",
+                has_parent=parent_id is not None,
+                payload_kind=type(normalized_payload).__name__,
+            )
         return task.id
 
     def reserve(self, *, worker_id: str) -> TaskEnvelope | None:
@@ -211,7 +231,7 @@ class FluxCapacitor:
 
         task = store.get_task(envelope.task_id)
         if task is None:
-            logger.error("Task '%s' missing from store; dropping.", envelope.task_id)
+            error_event(logger, "flux_task_missing_after_reserve", task_id=envelope.task_id)
             if envelope.reservation_ref:
                 queue.ack(envelope.reservation_ref)
             return None
@@ -234,6 +254,7 @@ class FluxCapacitor:
         store.mark_completed(task_id)
         if effective_reservation_ref:
             queue.ack(effective_reservation_ref)
+        debug_event(logger, "flux_task_completed", task_id=task_id)
 
     def fail(
         self,
@@ -249,6 +270,7 @@ class FluxCapacitor:
         store.mark_failed(task_id, error_msg=error_msg)
         if effective_reservation_ref:
             queue.ack(effective_reservation_ref)
+        debug_event(logger, "flux_task_failed", task_id=task_id)
 
     def retry(
         self,
@@ -300,34 +322,50 @@ class FluxCapacitor:
 
         task = store.get_task(envelope.task_id)
         if task is None:
-            logger.error("Task '%s' missing from store after reservation.", envelope.task_id)
+            error_event(logger, "flux_task_missing_after_mark_reserved", task_id=envelope.task_id)
             return False
 
-        hook = self._morpheus.resolve_hook(task.plugin_id, task.hook)
-        if hook is None:
-            self.fail(
-                task.id, error_msg="Hook not found", reservation_ref=envelope.reservation_ref
-            )
-            logger.error("Hook '%s' not found for plugin '%s'", task.hook, task.plugin_id)
-            return True
-
-        context = TaskContext(task=task, rag2f=self._rag2f, payload_loader=self._payload_loader)
-
-        try:
-            self._invoke_hook(hook.function, task, context)
-            children = self._collect_children(task, context)
-            for child in children:
-                self.enqueue(
-                    plugin_id=child.plugin_id or task.plugin_id,
-                    hook=child.hook,
-                    payload_ref=child.payload_ref,
-                    parent_id=task.id,
+        with observation_scope(
+            correlation_id=task.root_id,
+            task_id=task.id,
+            root_id=task.root_id,
+            plugin_id=task.plugin_id,
+            hook_name=task.hook,
+            worker_id=worker_id,
+        ):
+            hook = self._morpheus.resolve_hook(task.plugin_id, task.hook)
+            if hook is None:
+                self.fail(
+                    task.id, error_msg="Hook not found", reservation_ref=envelope.reservation_ref
                 )
-            self.complete(task.id, reservation_ref=envelope.reservation_ref)
-        except Exception as exc:
-            logger.exception("Task hook failed: %s", task.id)
-            self.fail(task.id, error_msg=str(exc), reservation_ref=envelope.reservation_ref)
-        return True
+                error_event(logger, "flux_hook_missing")
+                return True
+
+            context = TaskContext(
+                task=task, rag2f=self._rag2f, payload_loader=self._payload_loader
+            )
+            debug_event(logger, "flux_task_execution_start")
+
+            try:
+                self._invoke_hook(hook.function, task, context)
+                children = self._collect_children(task, context)
+                for child in children:
+                    self.enqueue(
+                        plugin_id=child.plugin_id or task.plugin_id,
+                        hook=child.hook,
+                        payload_ref=child.payload_ref,
+                        parent_id=task.id,
+                    )
+                self.complete(task.id, reservation_ref=envelope.reservation_ref)
+                debug_event(logger, "flux_task_execution_complete", child_count=len(children))
+            except Exception as exc:
+                exception_event(
+                    logger,
+                    "flux_task_execution_failed",
+                    error_type=type(exc).__name__,
+                )
+                self.fail(task.id, error_msg=str(exc), reservation_ref=envelope.reservation_ref)
+            return True
 
     def worker_loop(
         self, *, max_iterations: int | None = None, sleep_seconds: float = 0.1
