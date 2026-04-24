@@ -168,20 +168,20 @@ print("Repositories:", rag2f.xfiles.list_ids())
 if rag2f.xfiles.has("vectors"):
     caps = rag2f.xfiles.get_capabilities("vectors")
     print(f"Vector search supported: {caps.vector_search.supported}")
+```
 
-  ### Check Agents (ATeam)
+### Check Agents (ATeam)
 
-  ```python
-  # List registered agents
-  print("Agents:", rag2f.a_team.list_keys())
+```python
+# List registered agents
+print("Agents:", rag2f.a_team.list_keys())
 
-  # Get default agent for a plugin
-  writer = rag2f.a_team.get_default("writer_plugin")
+# Get default agent for a plugin
+writer = rag2f.a_team.get_default("writer_plugin")
 
-  # Get raw agent
-  raw_writer = rag2f.a_team.get_raw("writer_plugin.writer")
-  print(raw_writer)
-  ```
+# Get raw agent
+raw_writer = rag2f.a_team.get_raw("writer_plugin.writer")
+print(raw_writer)
 ```
 
 ---
@@ -197,6 +197,18 @@ When `RAG2F.create()` is called:
   - Load from filesystem (`plugins/`) → `plugin.activate()` for each (skip if ID already exists)
   - During `plugin.activate()`, Morpheus loads hooks/overrides and runs the plugin lifecycle override `activated` if present
 4. **refresh_caches()** — Index all hooks by name, sort by priority (higher first)
+
+### Agent Code Verification Order
+
+When a code agent installs or creates a plugin, verify in this order:
+
+1. `rag2f.morpheus.plugin_exists(plugin_id)`
+2. expected hooks appear in `rag2f.morpheus.hooks`
+3. expected registry keys appear in `a_team`, `optimus_prime`, or `xfiles`
+4. the configured default resolves without raising
+
+For a prescriptive implementation checklist, see
+[plugin_agent_playbook.txt](./plugin_agent_playbook.txt).
 
 ---
 

@@ -38,18 +38,16 @@ class RAG2F:
         """
         self.spock = Spock(config_path=config_path)
         # Alias early for components that expect config_manager during construction.
-        self.config_manager = self.spock
         self.johnny5 = Johnny5(rag2f_instance=self)
         self.indiana_jones = IndianaJones(rag2f_instance=self)
         self.morpheus = Morpheus(self, plugins_folder=plugins_folder)
         self.a_team = ATeam(rag2f_instance=self, spock=self.spock)
-        # Alias early for components that expect plugin_manager during construction.
-        self.plugin_manager = self.morpheus
         self.flux_capacitor = FluxCapacitor(rag2f_instance=self)
         self.optimus_prime = OptimusPrime(spock=self.spock)
         self.xfiles = XFiles(spock=self.spock)
 
         # Alias
+        self.config_manager = self.spock
         self.input_manager = self.johnny5
         self.retrieve_manager = self.indiana_jones
         self.plugin_manager = self.morpheus

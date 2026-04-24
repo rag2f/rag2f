@@ -128,20 +128,20 @@ from rag2f.core.morpheus.decorators.plugin_decorator import plugin
 def activated(plugin, rag2f_instance):
   # Get plugin config (key == plugin.id)
   config = rag2f_instance.spock.get_plugin_config(plugin.id) or {}
-    
-    # Required: use ENV for secrets
-    api_key = config.get("api_key")
-    if not api_key:
-        raise ValueError("API key not configured")
-    
-    embedder = AzureOpenAIEmbedder(
-        api_key=api_key,
-        endpoint=config.get("endpoint"),
-        deployment=config.get("deployment_name"),
-    )
-    
-    # Register under a stable key (must match rag2f.embedder_default)
-    rag2f_instance.optimus_prime.register("azure_openai", embedder)
+
+  # Required: use ENV for secrets
+  api_key = config.get("api_key")
+  if not api_key:
+    raise ValueError("API key not configured")
+
+  embedder = AzureOpenAIEmbedder(
+    api_key=api_key,
+    endpoint=config.get("endpoint"),
+    deployment=config.get("deployment_name"),
+  )
+
+  # Register under a stable key (must match rag2f.embedder_default)
+  rag2f_instance.optimus_prime.register("azure_openai", embedder)
 ```
 
 ## Best Practices
@@ -163,19 +163,19 @@ from rag2f.core.morpheus.decorators.plugin_decorator import plugin
 @plugin
 def activated(plugin, rag2f_instance):
   config = rag2f_instance.spock.get_plugin_config(plugin.id) or {}
-    
-    # Validate required config
-    required = ["endpoint", "deployment"]
-    missing = [k for k in required if not config.get(k)]
-    if missing:
-        raise ValueError(f"Missing config: {missing}")
-    
-    # Validate api_key from ENV
-    api_key = config.get("api_key")
-    if not api_key:
-        raise ValueError(
-            "API key required. Set RAG2F__PLUGINS__MY_EMBEDDER__API_KEY"
-        )
+
+  # Validate required config
+  required = ["endpoint", "deployment"]
+  missing = [k for k in required if not config.get(k)]
+  if missing:
+    raise ValueError(f"Missing config: {missing}")
+
+  # Validate api_key from ENV
+  api_key = config.get("api_key")
+  if not api_key:
+    raise ValueError(
+      "API key required. Set RAG2F__PLUGINS__MY_EMBEDDER__API_KEY"
+    )
 ```
 
 ---

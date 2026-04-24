@@ -6,14 +6,17 @@
 
 RAG2F instance provides these managers:
 
-- `johnny5` (input) → `execute_handle_text_foreground()`
-- `indiana_jones` (retrieval) → `execute_retrieve()`, `execute_search()`
+Each bullet follows this pattern:
+- `manager_name` / `public_alias` (responsibility) → representative public methods
+
+- `johnny5` / `input_manager` (input) → `execute_handle_text_foreground()`
+- `indiana_jones` / `retrieve_manager` (retrieval) → `execute_retrieve()`, `execute_search()`
 - `a_team` / `agent_manager` (agents) → `register()`, `get_default()`, `execute_run()`
 - `flux_capacitor` / `task_manager` (task orchestration) → `enqueue()`, `run_once()`, `get_status()`
-- `optimus_prime` (embedders) → `get_default()`, `register()`
-- `xfiles` (repositories) → `execute_register()`, `execute_get()`
-- `morpheus` (plugins) → `execute_hook()`, `find_plugins()`
-- `spock` (config) → `get_plugin_config()`, `get_rag2f_config()`
+- `optimus_prime` / `embedder_manager` (embedders) → `get_default()`, `register()`
+- `xfiles` / `repository_manager` (repositories) → `execute_register()`, `execute_get()`
+- `morpheus` / `plugin_manager` (plugins) → `execute_hook()`, `find_plugins()`
+- `spock` / `config_manager` (config) → `get_plugin_config()`, `get_rag2f_config()`
 
 ## Installation
 
@@ -47,16 +50,23 @@ rag2f = await RAG2F.create(
 rag2f.johnny5                   # Input processing
 rag2f.input_manager             # Alias for johnny5
 rag2f.indiana_jones             # RAG retrieval/search
-rag2f.self.retrieve_manager     # RAG indiana_jones
+rag2f.retrieve_manager          # Alias for indiana_jones
 rag2f.a_team                    # Agent registry and execution
 rag2f.agent_manager             # Alias for a_team
 rag2f.flux_capacitor            # Task orchestration
 rag2f.task_manager              # Alias for flux_capacitor
 rag2f.optimus_prime             # Embedder registry
+rag2f.embedder_manager          # Alias for optimus_prime
 rag2f.xfiles                    # Repository registry
+rag2f.repository_manager        # Alias for xfiles
 rag2f.morpheus                  # Plugin/hook manager
+rag2f.plugin_manager            # Alias for morpheus
 rag2f.spock                     # Configuration
+rag2f.config_manager            # Alias for spock
 ```
+
+Use the primary manager name when possible, and the alias when you want the stable public
+surface that mirrors the facade. Both resolve to the same object in the runtime.
 
 ---
 
@@ -290,6 +300,17 @@ Plugins are discovered in this priority order:
 
 **Entry points win** if the same plugin ID exists in both sources.
 
+### Agent Code Starting Point
+
+If you are implementing a new plugin with a code agent, start with:
+- [plugin_agent_playbook.txt](./plugin_agent_playbook.txt)
+
+It compresses the runtime rules that matter most during implementation:
+- what must happen in `activated()`
+- what belongs in hooks
+- how IDs and defaults resolve
+- how to verify the plugin actually loaded
+
 ### Using Plugins
 
 ```bash
@@ -308,29 +329,25 @@ rag2f = await RAG2F.create(
 print(rag2f.morpheus.plugins.keys())
 ```
 
-### Plugin Guides
+### Framework Guides
 
 | Guide | Purpose |
 |-------|---------|
-| [using_plugins.txt](./using_plugins.txt) | Install, configure, use plugins |
-| [creating_plugins.txt](./creating_plugins.txt) | Build your own plugins |
-| [flux_capacitor.txt](./flux_capacitor.txt) | Task orchestration and Johnny5 bridge |
-| [morpheus.txt](./morpheus.txt) | Hook system details |
-| [a_team.txt](./a_team.txt) | Agent manager contract, prompt hooks, and plugin patterns |
-| [exceptions.txt](./exceptions.txt) | Framework exception model and implementation guidelines |
-
----
-
-## Module Reference
-
-| Module | Alias | Purpose | Doc |
-|--------|-------|---------|-----|
-| Johnny5 | `input_manager` | Input processing | [johnny5.txt](./johnny5.txt) |
-| IndianaJones | `retrieve_manager` | RAG retrieval/search | [indiana_jones.txt](./indiana_jones.txt) |
-| OptimusPrime | `embedder_manager` | Embedder registry | [optimus_prime.txt](./optimus_prime.txt) |
-| XFiles | `repository_manager` | Repository registry | [xfiles.txt](./xfiles.txt) |
-| Morpheus | `plugin_manager` | Plugins & hooks | [morpheus.txt](./morpheus.txt) |
-| Spock | `config_manager` | Configuration | [spock.txt](./spock.txt) |
+| [llms.txt](./llms.txt) | Main integration overview, manager map, result pattern, and links to all framework guides |
+| [plugin_agent_playbook.txt](./plugin_agent_playbook.txt) | Fast path for code agents building, validating, or repairing plugins correctly |
+| [creating_plugins.txt](./creating_plugins.txt) | Plugin authoring guide with lifecycle, hooks, packaging, and end-to-end examples |
+| [using_plugins.txt](./using_plugins.txt) | Install, configure, discover, and verify plugins at runtime from code or packages |
+| [a_team.txt](./a_team.txt) | Agent registry contract, prompt orchestration hooks, defaults, and adapter patterns |
+| [flux_capacitor.txt](./flux_capacitor.txt) | Background task orchestration, workflow fan-out, status tracking, and worker patterns |
+| [indiana_jones.txt](./indiana_jones.txt) | Retrieval and search flow, hook sequence, return types, and synthesis extension points |
+| [johnny5.txt](./johnny5.txt) | Input pipeline behavior, duplicate checks, tracking IDs, and foreground handling hooks |
+| [morpheus.txt](./morpheus.txt) | Plugin discovery, hook execution rules, priorities, decorators, and lifecycle behavior |
+| [observability.txt](./observability.txt) | Structured logging, correlation context, and observability practices for core and plugins |
+| [optimus_prime.txt](./optimus_prime.txt) | Embedder registry semantics, default resolution, protocol expectations, and registration rules |
+| [spock.txt](./spock.txt) | JSON and ENV configuration model, precedence rules, and plugin config access patterns |
+| [testing.txt](./testing.txt) | Testing patterns for hooks, plugins, configs, mocks, and in-memory workflow backends |
+| [xfiles.txt](./xfiles.txt) | Repository registry contracts, capabilities, result objects, and native access patterns |
+| [exceptions.txt](./exceptions.txt) | Error model for results vs exceptions, extension guidance, and failure semantics |
 
 ---
 

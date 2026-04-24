@@ -5,6 +5,31 @@ Guide to building plugins that extend RAG2F functionality.
 This document is written for code agents and humans implementing plugins.
 Focus on stable contracts, registration points, and what belongs in a plugin vs. in the core.
 
+## Start Here for Code Agents
+
+If you need the shortest path to a correct plugin, read
+[plugin_agent_playbook.txt](./plugin_agent_playbook.txt) first.
+
+Use this file for:
+- larger examples
+- lifecycle and hook reference
+- packaging examples
+- publishing notes
+
+## Runtime Facts That Matter During Implementation
+
+These points are easy to miss if you only read examples:
+
+- `plugin.id` is the plugin folder name.
+- Morpheus scans Python files recursively inside the plugin folder.
+- `activated()` runs during plugin discovery.
+- discovery order is entry points first, filesystem second.
+- duplicate registry keys are rejected by ATeam, OptimusPrime, and XFiles.
+- `XFiles.execute_register()` and `XFiles.execute_get()` return Result objects.
+- a repository must satisfy `BaseRepository`.
+- an agent adapter must satisfy `AgentAdapter`.
+- if `pyproject.toml` exists, plugin activation installs from it before considering `requirements.txt`.
+
 ## Plugin Architecture
 
 RAG2F Core contains these modules: Johnny5, IndianaJones, OptimusPrime, XFiles, ATeam. All modules connect to Morpheus (the hook system). Plugins extend the system by registering hooks with Morpheus and by registering concrete runtime objects during plugin activation.
@@ -262,7 +287,6 @@ This keeps the Johnny5 API stable and avoids leaking internal workflow ids into 
 
 ```
 
-For agent plugins, see [a_team.txt](./a_team.txt).
 rag2f_qdrant_plugin/
 ├── __init__.py
 ├── plugin.json
@@ -340,10 +364,11 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 
 from rag2f.core.morpheus.decorators import hook
-from rag2f.core.xfiles.capabilities import Capabilities, VectorSearchCapability
+from rag2f.core.xfiles.capabilities import Capabilities, NativeCapability, VectorSearchCapability
+from rag2f.core.xfiles.repository import BaseRepository, RepositoryNativeMixin
 
 
-class QdrantRepository:
+class QdrantRepository(RepositoryNativeMixin, BaseRepository):
     """Qdrant-backed vector repository."""
     
     def __init__(self, client: QdrantClient, collection: str, vector_size: int):
@@ -355,12 +380,26 @@ class QdrantRepository:
         return Capabilities(
             vector_search=VectorSearchCapability(
                 supported=True,
-                dimensions=[self._vector_size]
+                dimensions=self._vector_size,
+                distance_metrics=("cosine",),
             ),
-            native_handles=["client"]
+            native=NativeCapability(supported=True, kinds=("primary",)),
         )
     
-    def native(self, handle_name: str = "default"):
+    @property
+    def name(self) -> str:
+        return "qdrant"
+
+    def get(self, id: str, select: list[str] | None = None) -> dict:
+        raise NotImplementedError()
+
+    def update(self, id: str, patch: dict) -> None:
+        raise NotImplementedError()
+
+    def delete(self, id: str) -> None:
+        raise NotImplementedError()
+
+    def _get_native_handle(self, kind: str) -> object:
         return self._client
     
     def vector_search(self, vector: list[float], k: int = 10) -> list[dict]:
@@ -371,7 +410,9 @@ class QdrantRepository:
         )
         return [{"id": r.id, "score": r.score, **r.payload} for r in results]
     
-    def insert(self, id: str, vector: list[float], payload: dict):
+    def insert(self, id: str, item: dict) -> None:
+        vector = item["vector"]
+        payload = {k: v for k, v in item.items() if k != "vector"}
         self._client.upsert(
             collection_name=self._collection,
             points=[PointStruct(id=id, vector=vector, payload=payload)]
@@ -397,7 +438,7 @@ def store_in_qdrant(done, track_id, text, *, rag2f):
         return False  # No embedder available
     
     # Store
-    result.repository.insert(track_id, vector, {"text": text})
+    result.repository.insert(track_id, {"text": text, "vector": vector})
     return True
 
 
@@ -440,7 +481,7 @@ def retrieve_from_qdrant(result, query, k, return_mode, for_synthesize, *, rag2f
 ```json
 {
   "plugins": {
-    "rag2f_qdrant": {
+        "rag2f_qdrant_plugin": {
       "host": "localhost",
       "port": 6333,
       "collection": "documents",
@@ -491,7 +532,7 @@ from rag2f.core.rag2f import RAG2F
 @pytest_asyncio.fixture
 async def rag2f_with_plugin():
     return await RAG2F.create(
-        plugins_folder="./my_plugin/",
+        plugins_folder="./plugins/",
         config={
             "plugins": {
                 "my_plugin": {"setting": "value"}
@@ -506,6 +547,9 @@ async def test_plugin_hooks(rag2f_with_plugin):
     result = rag2f_with_plugin.johnny5.execute_handle_text_foreground("test")
     assert result.is_ok()
 ```
+
+The `plugins_folder` must point to the parent folder that contains plugin directories.
+Do not pass the plugin directory itself.
 
 ---
 

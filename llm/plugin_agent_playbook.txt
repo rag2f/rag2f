@@ -1,0 +1,358 @@
+# Plugin Agent Playbook
+
+Start here when a code agent must create or repair a RAG2F plugin.
+
+This playbook is intentionally prescriptive. It is based on the runtime behavior in:
+- `src/rag2f/core/morpheus/morpheus.py`
+- `src/rag2f/core/morpheus/plugin.py`
+- `src/rag2f/core/a_team/a_team.py`
+- `src/rag2f/core/optimus_prime/optimus_prime.py`
+- `src/rag2f/core/xfiles/xfiles.py`
+
+Use this document to decide:
+- what kind of plugin to build
+- what belongs in `activated()` vs. in hooks
+- which keys and IDs must stay stable
+- how to verify the plugin actually loaded
+
+---
+
+## Golden Rules
+
+1. Plugin ID is the plugin folder name.
+2. `await RAG2F.create(...)` is the only supported construction path.
+3. Morpheus discovers plugins in this order:
+   - entry points first
+   - filesystem second
+4. If the same plugin ID exists in both places, the entry-point plugin wins.
+5. Plugin activation may install dependencies from `pyproject.toml` or `requirements.txt`.
+6. Morpheus scans Python files recursively inside the plugin folder, not only `hooks.py`.
+7. Use `@plugin` only for lifecycle overrides such as `activated` and `deactivated`.
+8. Use `@hook` only for participation in a named pipeline.
+9. Registry keys must be stable because overrides are rejected by default.
+10. A plugin should fail fast in `activated()` when required config is missing.
+
+---
+
+## Choose the Smallest Plugin Shape
+
+### Embedder plugin
+
+Use when the plugin provides embeddings.
+
+Registration target:
+- `rag2f_instance.optimus_prime.register(key, embedder)`
+
+Where to register:
+- `activated()`
+
+Default selection:
+- `rag2f.embedder_default` must match the registry key if multiple embedders exist
+
+### Repository plugin
+
+Use when the plugin provides storage or retrieval over a backend.
+
+Registration target:
+- `rag2f_instance.xfiles.execute_register(id, repository, meta=...)`
+
+Where to register:
+- `activated()`
+
+Contract:
+- repository must satisfy `BaseRepository`
+- advanced features are optional and capability-driven
+
+### Agent plugin
+
+Use when the plugin provides one or more LLM agents.
+
+Registration target:
+- `rag2f_instance.a_team.register(key, adapter, plugin_id=..., is_default=...)`
+
+Where to register:
+- `activated()`
+
+Contract:
+- adapter must satisfy `AgentAdapter`
+
+### Pipeline-only plugin
+
+Use when the plugin only changes behavior in existing pipelines.
+
+Registration target:
+- `@hook(...)`
+
+Where to register:
+- no explicit registration step; Morpheus discovers decorated functions automatically
+
+---
+
+## Recommended Layout
+
+```
+my_plugin/
+├── __init__.py
+├── plugin.json
+├── pyproject.toml
+├── plugin_context.py
+├── plugin_overrides.py
+├── hooks.py
+└── requirements.txt
+```
+
+Notes:
+- `plugin.json` is optional but strongly recommended.
+- `pyproject.toml` is recommended for packaged plugins.
+- `requirements.txt` is acceptable for local or lightweight plugins.
+- `plugin_context.py` is recommended when hooks need a stable way to resolve `plugin_id`.
+
+---
+
+## Activation Boundary
+
+Put long-lived runtime objects in `activated()`:
+- provider SDK clients
+- embedder instances
+- repository instances
+- agent adapters
+- config validation
+
+Do not put these in hooks unless they are intentionally request-scoped.
+
+Minimal pattern:
+
+```python
+from rag2f.core.morpheus.decorators.plugin_decorator import plugin
+
+
+@plugin
+def activated(plugin, rag2f_instance):
+    plugin_id = plugin.id
+    config = rag2f_instance.spock.get_plugin_config(plugin_id) or {}
+
+    api_key = config.get("api_key")
+    if not api_key:
+        raise ValueError(
+            f"Missing api_key for plugin '{plugin_id}'. "
+            f"Set RAG2F__PLUGINS__{plugin_id.upper()}__API_KEY"
+        )
+
+    client = ProviderClient(api_key=api_key)
+    adapter = MyAgentAdapter(client)
+    rag2f_instance.a_team.register(
+        f"{plugin_id}.default",
+        adapter,
+        plugin_id=plugin_id,
+        is_default=True,
+    )
+
+
+@plugin
+def deactivated(plugin, rag2f_instance):
+    rag2f_instance.a_team.unregister(f"{plugin.id}.default")
+```
+
+---
+
+## Hook Boundary
+
+Put per-request logic in hooks:
+- transform a piped value
+- enrich retrieved items
+- short-circuit a pipeline
+- append prompt fragments
+
+Hook facts from the runtime:
+- hooks execute in descending priority order
+- the first positional argument is piped through the chain
+- returning `None` keeps the previous piped value
+- `rag2f` is passed as a keyword argument
+
+Minimal pattern:
+
+```python
+from rag2f.core.morpheus.decorators import hook
+
+
+@hook("handle_text_foreground", priority=20)
+def handle(done: bool, track_id: str, text: str, *, rag2f):
+    if done:
+        return done
+
+    embedder = rag2f.optimus_prime.get_default()
+    vector = embedder.getEmbedding(text)
+
+    repo_result = rag2f.xfiles.execute_get("vectors")
+    if not repo_result.repository:
+        return False
+
+    repo_result.repository.insert(track_id, {"text": text, "vector": vector})
+    return True
+```
+
+---
+
+## Plugin ID and Config Resolution
+
+In `activated()` use:
+
+```python
+plugin_id = plugin.id
+config = rag2f_instance.spock.get_plugin_config(plugin_id) or {}
+```
+
+In hooks use one of these:
+- `rag2f.morpheus.self_plugin_id()`
+- a local helper such as `get_plugin_id(rag2f)` backed by `plugin_context.py`
+
+Recommended `plugin_context.py` template:
+
+```python
+from contextvars import ContextVar
+
+
+_plugin_id_var: ContextVar[str | None] = ContextVar("plugin_id", default=None)
+
+
+def set_plugin_id(plugin_id: str) -> None:
+    _plugin_id_var.set(plugin_id)
+
+
+def get_plugin_id(rag2f=None) -> str:
+    plugin_id = _plugin_id_var.get()
+    if plugin_id:
+        return plugin_id
+    if rag2f is None:
+        raise RuntimeError("plugin_id is not available")
+    return rag2f.morpheus.self_plugin_id()
+```
+
+---
+
+## Packaging and Discovery
+
+For distributable plugins, use entry points.
+
+```toml
+[project]
+name = "rag2f-my-plugin"
+version = "0.1.0"
+dependencies = ["rag2f>=0.1.0"]
+
+[project.entry-points."rag2f.plugins"]
+my_plugin = "my_plugin:get_plugin_path"
+```
+
+```python
+from pathlib import Path
+
+
+def get_plugin_path() -> str:
+    return str(Path(__file__).parent)
+```
+
+Important:
+- entry-point plugin IDs override filesystem plugin IDs with the same folder name
+- do not rely on local filesystem plugins to override installed packages
+
+---
+
+## Verification Checklist
+
+After creating the plugin, verify all of these.
+
+### Discovery
+
+```python
+rag2f = await RAG2F.create(plugins_folder="./plugins/", config_path="config.json")
+
+assert rag2f.morpheus.plugin_exists("my_plugin")
+plugin = rag2f.morpheus.get_plugin("my_plugin")
+print(plugin.path)
+```
+
+### Hooks
+
+```python
+hooks = rag2f.morpheus.hooks.get("handle_text_foreground", [])
+print([(hook.plugin_id, hook.priority) for hook in hooks])
+```
+
+### Embedders
+
+```python
+print(rag2f.optimus_prime.list_keys())
+embedder = rag2f.optimus_prime.get_default()
+print(embedder)
+```
+
+### Repositories
+
+```python
+print(rag2f.xfiles.list_ids())
+repo_result = rag2f.xfiles.execute_get("vectors")
+assert repo_result.is_ok()
+assert repo_result.repository is not None
+```
+
+### Agents
+
+```python
+print(rag2f.a_team.list_keys())
+agent = rag2f.a_team.get_default("my_plugin")
+print(agent)
+```
+
+---
+
+## Test Strategy
+
+### Smallest useful tests
+
+1. Unit-test the adapter or repository without RAG2F when possible.
+2. Add one integration test with a mock plugin folder.
+3. Add one config test for `plugins.<plugin_id>`.
+4. If using FluxCapacitor, use in-memory queue/store.
+
+### Minimal integration fixture
+
+```python
+import pytest_asyncio
+
+from rag2f.core.rag2f import RAG2F
+
+
+@pytest_asyncio.fixture
+async def rag2f_with_plugins():
+    return await RAG2F.create(plugins_folder="tests/mocks/plugins/")
+```
+
+Pass the folder that contains plugin subdirectories.
+Do not pass the plugin directory itself as `plugins_folder`.
+
+---
+
+## Common Agent Mistakes
+
+1. Passing the plugin directory itself to `plugins_folder` instead of its parent folder.
+2. Registering embedders, repositories, or agents inside hooks instead of `activated()`.
+3. Using unstable registry keys and then expecting defaults to resolve.
+4. Forgetting that XFiles uses Result objects such as `execute_register()` and `execute_get()`.
+5. Returning a repository object that does not satisfy `BaseRepository`.
+6. Returning an adapter that does not satisfy `AgentAdapter`.
+7. Assuming `requirements.txt` is ignored when `pyproject.toml` exists.
+8. Assuming a local filesystem plugin can shadow an installed entry-point plugin.
+9. Reading secrets from ad hoc files instead of Spock ENV or JSON config.
+10. Forgetting that hook priority is descending and `None` keeps the previous piped value.
+
+---
+
+## Where to Go Next
+
+- For full plugin creation examples: [creating_plugins.txt](./creating_plugins.txt)
+- For installation and runtime verification: [using_plugins.txt](./using_plugins.txt)
+- For hook mechanics: [morpheus.txt](./morpheus.txt)
+- For agent adapters: [a_team.txt](./a_team.txt)
+- For configuration: [spock.txt](./spock.txt)
+- For testing patterns: [testing.txt](./testing.txt)
