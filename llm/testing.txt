@@ -97,6 +97,43 @@ async def test_plugin_integration(rag2f_with_mock_plugins):
     assert result.is_ok()
 ```
 
+### 3b. FluxCapacitor-backed Plugin Tests
+
+When a plugin uses FluxCapacitor, keep the test deterministic with in-memory backends.
+
+```python
+from rag2f.core.flux_capacitor import InMemoryTaskQueue, InMemoryTaskStore
+
+
+def configure_task_backend(rag2f, *, name="test_memory"):
+    store = InMemoryTaskStore()
+    queue = InMemoryTaskQueue()
+    rag2f.task_manager.register_store(name, store)
+    rag2f.task_manager.register_queue(name, queue)
+    rag2f.task_manager.set_default_store(name)
+    rag2f.task_manager.set_default_queue(name)
+    return store, queue
+
+
+def test_flux_workflow(rag2f):
+    store, _queue = configure_task_backend(rag2f)
+
+    root_task_id = rag2f.task_manager.enqueue(
+        plugin_id="flux_plugin",
+        hook="flux_fanout_root_hook",
+        payload_ref={"repository": "repo", "id": "doc-1"},
+    )
+
+    initial = rag2f.task_manager.get_status(root_task_id, include_descendants=True)
+    assert initial.status == "pending"
+
+    while rag2f.task_manager.run_once(worker_id="test-worker"):
+        pass
+
+    final = store.get_status(root_task_id, include_descendants=True)
+    assert final.tree_completed
+```
+
 ### 4. In-Memory Configuration
 
 ```python

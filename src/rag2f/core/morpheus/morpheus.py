@@ -207,6 +207,18 @@ class Morpheus:
         """Check if a plugin exists locally."""
         return plugin_id in self.plugins
 
+    def resolve_hook(self, plugin_id: str, hook_name: str) -> PillHook | None:
+        """Return a single hook for a specific plugin.
+
+        This keeps hook execution deterministic for async agents that
+        must run exactly one semantic step.
+        """
+        hooks = self.hooks.get(hook_name, [])
+        for hook in hooks:
+            if hook.plugin_id == plugin_id:
+                return hook
+        return None
+
     # execute requested hook
     def execute_hook(self, hook_name, *args, rag2f) -> Any:
         """Execute a hook pipeline.

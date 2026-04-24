@@ -39,7 +39,6 @@ dev = [
     "coverage",
     "pytest-cov",
     "respx",
-    
 ]
 rag2f-openai-embedder = ["rag2f-openai-embedder>=0.1.0.dev5"]
 
