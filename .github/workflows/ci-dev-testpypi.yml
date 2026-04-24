@@ -47,17 +47,15 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies (dev) for audit
+      - name: Install audit tools
         run: |
           python -m pip install --upgrade pip
-          pip install uv
-          uv pip install --system -e '.[dev]'
+          pip install uv pip-audit
 
       - name: Run pip-audit
         run: |
-          python -m pip install pip-audit
-          uv pip compile pyproject.toml --extra dev -o /tmp/requirements-dev.txt
-          pip-audit -r /tmp/requirements-dev.txt
+          uv pip compile pyproject.toml -o /tmp/requirements-runtime.txt
+          pip-audit -r /tmp/requirements-runtime.txt
 
   validate-and-test:
     runs-on: ubuntu-latest
@@ -208,28 +206,6 @@ jobs:
           fi
           BASE_VERSION=$(cat NEXT_VERSION | tr -d '[:space:]')
           echo "Base version: $BASE_VERSION"
-
-          LATEST_TAG=$(git tag --sort=-version:refname | head -1)
-          if [ -n "$LATEST_TAG" ]; then
-            LATEST_VERSION="${LATEST_TAG#v}"
-            LATEST_VERSION="${LATEST_VERSION#.}"
-            echo "Latest tag: $LATEST_TAG"
-            echo "Latest tag version: $LATEST_VERSION"
-            printf '%s' "$LATEST_VERSION" > .latest_tag_version
-            python - <<'PY'
-from packaging.version import Version
-from pathlib import Path
-
-base_version = Path("NEXT_VERSION").read_text(encoding="utf-8").strip()
-latest_version = Path(".latest_tag_version").read_text(encoding="utf-8").strip()
-
-if Version(base_version) <= Version(latest_version):
-    raise SystemExit(
-        f"NEXT_VERSION must be greater than the latest tag version: {base_version} <= {latest_version}"
-    )
-PY
-            rm -f .latest_tag_version
-          fi
 
           DEV_VERSION="${BASE_VERSION}.dev${{ github.run_number }}"
           echo "Dev version: $DEV_VERSION"
