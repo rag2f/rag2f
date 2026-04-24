@@ -246,6 +246,16 @@ def add_prompt_parts(fragments, context, rag2f):
     return fragments
 ```
 
+## Johnny5 and FluxCapacitor
+
+If a plugin starts a FluxCapacitor workflow from Johnny5, keep `track_id` as the public identifier.
+
+- generate `track_id` in `get_id_input_text`
+- process or schedule work in `handle_text_foreground`
+- if external callers must ask for async status later, keep the plugin-specific mapping from `track_id` to any internal Flux task ids
+
+This keeps the Johnny5 API stable and avoids leaking internal workflow ids into the public contract.
+
 ---
 
 ## Complete Plugin Example: Vector Store

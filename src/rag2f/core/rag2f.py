@@ -9,6 +9,7 @@ from typing import Any
 from dotenv import load_dotenv
 
 from rag2f.core.a_team.a_team import ATeam
+from rag2f.core.flux_capacitor.flux_capacitor import FluxCapacitor
 from rag2f.core.indiana_jones.indiana_jones import IndianaJones
 from rag2f.core.johnny5.johnny5 import Johnny5
 from rag2f.core.morpheus.morpheus import Morpheus
@@ -35,19 +36,24 @@ class RAG2F:
             config_path: Path to JSON configuration file
         """
         self.spock = Spock(config_path=config_path)
+        # Alias early for components that expect config_manager during construction.
+        self.config_manager = self.spock
         self.johnny5 = Johnny5(rag2f_instance=self)
         self.indiana_jones = IndianaJones(rag2f_instance=self)
         self.morpheus = Morpheus(self, plugins_folder=plugins_folder)
         self.a_team = ATeam(rag2f_instance=self, spock=self.spock)
+        # Alias early for components that expect plugin_manager during construction.
+        self.plugin_manager = self.morpheus
+        self.flux_capacitor = FluxCapacitor(rag2f_instance=self)
         self.optimus_prime = OptimusPrime(spock=self.spock)
         self.xfiles = XFiles(spock=self.spock)
 
         # Alias
-        self.config_manager = self.spock
         self.input_manager = self.johnny5
         self.retrieve_manager = self.indiana_jones
         self.plugin_manager = self.morpheus
         self.agent_manager = self.a_team
+        self.task_manager = self.flux_capacitor
         self.embedder_manager = self.optimus_prime
         self.repository_manager = self.xfiles
         logger.debug("RAG2F instance created.")

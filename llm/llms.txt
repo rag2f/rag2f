@@ -9,6 +9,7 @@ RAG2F instance provides these managers:
 - `johnny5` (input) → `execute_handle_text_foreground()`
 - `indiana_jones` (retrieval) → `execute_retrieve()`, `execute_search()`
 - `a_team` / `agent_manager` (agents) → `register()`, `get_default()`, `execute_run()`
+- `flux_capacitor` / `task_manager` (task orchestration) → `enqueue()`, `run_once()`, `get_status()`
 - `optimus_prime` (embedders) → `get_default()`, `register()`
 - `xfiles` (repositories) → `execute_register()`, `execute_get()`
 - `morpheus` (plugins) → `execute_hook()`, `find_plugins()`
@@ -43,14 +44,18 @@ rag2f = await RAG2F.create(
 )
 
 # Access managers
-rag2f.johnny5           # Input processing
-rag2f.indiana_jones     # RAG retrieval/search
-rag2f.a_team            # Agent registry and execution
-rag2f.agent_manager     # Alias for a_team
-rag2f.optimus_prime     # Embedder registry
-rag2f.xfiles            # Repository registry
-rag2f.morpheus          # Plugin/hook manager
-rag2f.spock             # Configuration
+rag2f.johnny5                   # Input processing
+rag2f.input_manager             # Alias for johnny5
+rag2f.indiana_jones             # RAG retrieval/search
+rag2f.self.retrieve_manager     # RAG indiana_jones
+rag2f.a_team                    # Agent registry and execution
+rag2f.agent_manager             # Alias for a_team
+rag2f.flux_capacitor            # Task orchestration
+rag2f.task_manager              # Alias for flux_capacitor
+rag2f.optimus_prime             # Embedder registry
+rag2f.xfiles                    # Repository registry
+rag2f.morpheus                  # Plugin/hook manager
+rag2f.spock                     # Configuration
 ```
 
 ---
@@ -119,6 +124,24 @@ Hooks invoked (in order):
 1. `get_id_input_text` — generate/retrieve ID
 2. `check_duplicated_input_text` — duplicate check
 3. `handle_text_foreground` — actual processing
+
+`track_id` is the public identifier returned to callers. If a plugin uses FluxCapacitor
+internally, any mapping from `track_id` to internal task ids remains a plugin concern.
+
+### FluxCapacitor — Task Orchestration
+
+```python
+root_task_id = rag2f.task_manager.enqueue(
+    plugin_id="my_plugin",
+    hook="task_default",
+    payload_ref={"repository": "docs", "id": "doc-1"},
+)
+
+status = rag2f.task_manager.get_status(root_task_id, include_descendants=True)
+```
+
+See [flux_capacitor.txt](./flux_capacitor.txt) for the workflow model, task states,
+and status tracking patterns.
 
 ### IndianaJones — RAG Retrieval
 
@@ -291,6 +314,7 @@ print(rag2f.morpheus.plugins.keys())
 |-------|---------|
 | [using_plugins.txt](./using_plugins.txt) | Install, configure, use plugins |
 | [creating_plugins.txt](./creating_plugins.txt) | Build your own plugins |
+| [flux_capacitor.txt](./flux_capacitor.txt) | Task orchestration and Johnny5 bridge |
 | [morpheus.txt](./morpheus.txt) | Hook system details |
 | [a_team.txt](./a_team.txt) | Agent manager contract, prompt hooks, and plugin patterns |
 | [exceptions.txt](./exceptions.txt) | Framework exception model and implementation guidelines |

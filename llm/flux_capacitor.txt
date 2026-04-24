@@ -1,0 +1,134 @@
+# FluxCapacitor — Task Orchestration Guide
+
+FluxCapacitor is the task orchestration manager in RAG2F.
+
+Use it when plugin logic needs:
+- background execution
+- task fan-out into child tasks
+- workflow tracking via a root task id
+- status checks while work is still running
+
+## Core API
+
+```python
+root_task_id = rag2f.flux_capacitor.enqueue(
+    plugin_id="my_plugin",
+    hook="process_document",
+    payload_ref={"repository": "docs", "id": "doc-123"},
+)
+
+envelope = rag2f.flux_capacitor.reserve(worker_id="worker-1")
+rag2f.flux_capacitor.complete(envelope.task_id)
+status = rag2f.flux_capacitor.get_status(root_task_id, include_descendants=True)
+```
+
+Public operations:
+- `enqueue()` — create the authoritative task in the store and publish it to the queue
+- `reserve()` — reserve the next task and mark it as running in the store
+- `complete()` — mark success and acknowledge the reservation
+- `fail()` — mark terminal failure and acknowledge the reservation
+- `retry()` — mark retry and requeue the same logical task id
+- `get_status()` — inspect one task or the whole descendant tree
+
+## Mental Model
+
+- The store is the source of truth for workflow state.
+- The queue is only for delivery and reservation.
+- Each task has one hook.
+- Child tasks inherit the same `root_id` as the parent tree.
+
+Important task fields:
+- `id`
+- `root_id`
+- `parent_id`
+- `plugin_id`
+- `hook`
+- `status`
+- `attempts`
+- `worker_id`
+- `last_error`
+- `reservation_ref`
+
+Task statuses:
+- `pending`
+- `reserved`
+- `completed`
+- `failed`
+- `retry_scheduled`
+
+## Plugin Pattern
+
+Plugins should keep Flux orchestration explicit.
+
+If a plugin starts Flux work from Johnny5 or another entrypoint:
+- keep `track_id` as the public correlation key
+- pass that `track_id` into Flux payloads or plugin-managed metadata
+- keep any mapping from public `track_id` to internal Flux task ids inside the plugin layer
+
+That keeps Flux internals private while still allowing external status lookup through the plugin's public API.
+
+## Task Hooks
+
+Flux task hooks receive a `TaskContext` and can emit child tasks.
+
+```python
+from rag2f.core.morpheus.decorators import hook
+
+
+@hook("process_text_async")
+def process_text_async(context=None, **kwargs):
+    if context is not None:
+        context.emit_child(
+            "embed_chunk",
+            payload_ref={"repository": "chunks", "id": "chunk-1"},
+        )
+        context.emit_child(
+            "store_metadata",
+            payload_ref={"repository": "chunks", "id": "chunk-1"},
+        )
+    return {"queued": True}
+```
+
+## Querying Status
+
+Use the root task id to monitor progress.
+
+```python
+status = rag2f.task_manager.get_status(root_task_id, include_descendants=True)
+
+if status.tree_completed:
+    print("workflow complete")
+else:
+    print(status.pending_count, status.reserved_count)
+```
+
+Useful `TaskStatusView` fields:
+- `status`
+- `descendant_count`
+- `pending_count`
+- `reserved_count`
+- `completed_count`
+- `failed_count`
+- `tree_completed`
+
+## Testing Pattern
+
+Use in-memory backends for focused tests.
+
+```python
+from rag2f.core.flux_capacitor import InMemoryTaskQueue, InMemoryTaskStore
+
+
+store = InMemoryTaskStore()
+queue = InMemoryTaskQueue()
+rag2f.task_manager.register_store("test_memory", store)
+rag2f.task_manager.register_queue("test_memory", queue)
+rag2f.task_manager.set_default_store("test_memory")
+rag2f.task_manager.set_default_queue("test_memory")
+```
+
+Then assert:
+- root task id exists
+- descendants share the same `root_id`
+- intermediate status shows pending children
+- final status reports `tree_completed=True`

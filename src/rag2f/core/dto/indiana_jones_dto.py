@@ -5,7 +5,7 @@ return status="error". System errors (backend crash) raise exceptions.
 """
 
 from collections.abc import Mapping
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from rag2f.core.dto.result_dto import BaseResult
 
 
-class ReturnMode(str, Enum):
+class ReturnMode(StrEnum):
     """Control what data is returned from search operations.
 
     Attributes:
