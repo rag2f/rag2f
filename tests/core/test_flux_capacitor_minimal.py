@@ -4,7 +4,15 @@ from __future__ import annotations
 
 import importlib
 
-from rag2f.core.flux_capacitor import InMemoryTaskQueue, InMemoryTaskStore
+import pytest
+
+from rag2f.core.flux_capacitor import (
+    HookResolutionError,
+    InMemoryTaskQueue,
+    InMemoryTaskStore,
+    TaskRegistrationError,
+    TaskResolutionError,
+)
 
 
 def _configure_test_backend(flux, *, name: str) -> tuple[InMemoryTaskStore, InMemoryTaskQueue]:
@@ -152,3 +160,59 @@ def test_flux_capacitor_retry_preserves_task_identity(rag2f) -> None:
     assert task is not None
     assert task.root_id == task_id
     assert task.attempts == 2
+
+
+def test_flux_capacitor_duplicate_store_registration_raises_module_error(rag2f) -> None:
+    flux = rag2f.task_manager
+
+    flux.register_store("duplicate_store", InMemoryTaskStore())
+
+    with pytest.raises(TaskRegistrationError, match="Override not allowed") as exc_info:
+        flux.register_store("duplicate_store", InMemoryTaskStore())
+
+    assert exc_info.value.context == {"store_name": "duplicate_store"}
+
+
+def test_flux_capacitor_missing_parent_raises_task_resolution_error(rag2f) -> None:
+    flux = rag2f.task_manager
+    _configure_test_backend(flux, name="missing_parent_memory")
+
+    with pytest.raises(
+        TaskResolutionError, match="Parent task 'missing-parent' not found"
+    ) as exc_info:
+        flux.enqueue(
+            plugin_id="flux_plugin",
+            hook="flux_child_hook",
+            payload_ref={"repository": "repo", "id": "child-1"},
+            parent_id="missing-parent",
+        )
+
+    assert exc_info.value.context["parent_id"] == "missing-parent"
+    assert "task_id" in exc_info.value.context
+
+
+def test_flux_capacitor_retry_unknown_task_raises_task_resolution_error(rag2f) -> None:
+    flux = rag2f.task_manager
+    _configure_test_backend(flux, name="missing_task_memory")
+
+    with pytest.raises(TaskResolutionError, match="Unknown task: missing-task") as exc_info:
+        flux.retry("missing-task", error_msg="temporary failure")
+
+    assert exc_info.value.context == {"task_id": "missing-task"}
+
+
+def test_flux_capacitor_missing_hook_exposes_resolution_context(rag2f) -> None:
+    flux = rag2f.task_manager
+    _configure_test_backend(flux, name="missing_hook_memory")
+
+    with pytest.raises(HookResolutionError, match="Hook 'missing_hook' not found") as exc_info:
+        flux.enqueue(
+            plugin_id="flux_plugin",
+            hook="missing_hook",
+            payload_ref={"repository": "repo", "id": "missing-hook-1"},
+        )
+
+    assert exc_info.value.context == {
+        "plugin_id": "flux_plugin",
+        "hook_name": "missing_hook",
+    }

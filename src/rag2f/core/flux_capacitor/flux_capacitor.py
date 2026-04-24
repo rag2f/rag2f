@@ -17,6 +17,8 @@ from rag2f.core.flux_capacitor.errors import (
     HookResolutionError,
     MissingQueueError,
     MissingStoreError,
+    TaskRegistrationError,
+    TaskResolutionError,
 )
 from rag2f.core.flux_capacitor.queue import BaseTaskQueue
 from rag2f.core.flux_capacitor.store import BaseTaskStore
@@ -78,8 +80,8 @@ class FluxCapacitor:
         payload_loader: Any | None = None,
     ) -> None:
         self._rag2f = rag2f_instance
-        self._spock = rag2f_instance.config_manager
-        self._morpheus = rag2f_instance.plugin_manager
+        self._spock = rag2f_instance.spock
+        self._morpheus = rag2f_instance.morpheus
         self._payload_loader = payload_loader
         self._stores: dict[str, BaseTaskStore] = {}
         self._queues: dict[str, BaseTaskQueue] = {}
@@ -100,12 +102,18 @@ class FluxCapacitor:
         if not isinstance(name, str) or not name.strip():
             raise ValueError("Store name must be a non-empty string")
         if not isinstance(store, BaseTaskStore):
-            raise TypeError("Store does not implement BaseTaskStore")
+            raise TaskRegistrationError(
+                "Store does not implement BaseTaskStore",
+                context={"store_name": name, "type": type(store).__name__},
+            )
         if name in self._stores:
             if self._stores[name] is store:
                 warning_event(logger, "flux_store_register_duplicate", store_name=name)
                 return
-            raise ValueError(f"Override not allowed for already registered store: {name!r}")
+            raise TaskRegistrationError(
+                f"Override not allowed for already registered store: {name!r}",
+                context={"store_name": name},
+            )
         self._stores[name] = store
         debug_event(logger, "flux_store_registered", store_name=name)
 
@@ -122,12 +130,18 @@ class FluxCapacitor:
         if not isinstance(name, str) or not name.strip():
             raise ValueError("Queue name must be a non-empty string")
         if not isinstance(queue, BaseTaskQueue):
-            raise TypeError("Queue does not implement BaseTaskQueue")
+            raise TaskRegistrationError(
+                "Queue does not implement BaseTaskQueue",
+                context={"queue_name": name, "type": type(queue).__name__},
+            )
         if name in self._queues:
             if self._queues[name] is queue:
                 warning_event(logger, "flux_queue_register_duplicate", queue_name=name)
                 return
-            raise ValueError(f"Override not allowed for already registered queue: {name!r}")
+            raise TaskRegistrationError(
+                f"Override not allowed for already registered queue: {name!r}",
+                context={"queue_name": name},
+            )
         self._queues[name] = queue
         debug_event(logger, "flux_queue_registered", queue_name=name)
 
@@ -142,24 +156,36 @@ class FluxCapacitor:
 
     def set_default_store(self, name: str) -> None:
         if name not in self._stores:
-            raise MissingStoreError(f"Store '{name}' not registered")
+            raise MissingStoreError(
+                f"Store '{name}' not registered",
+                context={"store_name": name},
+            )
         self._default_store_name = name
 
     def set_default_queue(self, name: str) -> None:
         if name not in self._queues:
-            raise MissingQueueError(f"Queue '{name}' not registered")
+            raise MissingQueueError(
+                f"Queue '{name}' not registered",
+                context={"queue_name": name},
+            )
         self._default_queue_name = name
 
     def get_store(self, name: str | None = None) -> BaseTaskStore:
         store_name = name or self._resolve_default_store_name()
         if not store_name or store_name not in self._stores:
-            raise MissingStoreError("No task store configured")
+            raise MissingStoreError(
+                "No task store configured",
+                context={"store_name": store_name},
+            )
         return self._stores[store_name]
 
     def get_queue(self, name: str | None = None) -> BaseTaskQueue:
         queue_name = name or self._resolve_default_queue_name()
         if not queue_name or queue_name not in self._queues:
-            raise MissingQueueError("No task queue configured")
+            raise MissingQueueError(
+                "No task queue configured",
+                context={"queue_name": queue_name},
+            )
         return self._queues[queue_name]
 
     def _resolve_default_store_name(self) -> str | None:
@@ -284,7 +310,10 @@ class FluxCapacitor:
         queue = self.get_queue()
         task = store.get_task(task_id)
         if task is None:
-            raise ValueError(f"Unknown task: {task_id}")
+            raise TaskResolutionError(
+                f"Unknown task: {task_id}",
+                context={"task_id": task_id},
+            )
 
         effective_reservation_ref = reservation_ref or task.reservation_ref
         store.mark_retry(task_id, error_msg=error_msg)
@@ -427,13 +456,19 @@ class FluxCapacitor:
             return task_id
         parent = self.get_store().get_task(parent_id)
         if parent is None:
-            raise ValueError(f"Parent task '{parent_id}' not found")
+            raise TaskResolutionError(
+                f"Parent task '{parent_id}' not found",
+                context={"parent_id": parent_id, "task_id": task_id},
+            )
         return parent.root_id or parent.id
 
     def _resolve_task_hook(self, *, plugin_id: str, hook: str | None) -> str:
         resolved_hook = hook or self._config.default_hook or "task_default"
         if self._morpheus.resolve_hook(plugin_id, resolved_hook) is None:
-            raise HookResolutionError(f"Hook '{resolved_hook}' not found for plugin '{plugin_id}'")
+            raise HookResolutionError(
+                f"Hook '{resolved_hook}' not found for plugin '{plugin_id}'",
+                context={"plugin_id": plugin_id, "hook_name": resolved_hook},
+            )
         return resolved_hook
 
     def _publish_task(self, task: Task, *, available_at: datetime | None = None) -> None:

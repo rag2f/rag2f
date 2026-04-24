@@ -30,6 +30,20 @@ Public operations:
 - `retry()` — mark retry and requeue the same logical task id
 - `get_status()` — inspect one task or the whole descendant tree
 
+## Error Model
+
+FluxCapacitor uses module-specific exceptions for orchestration failures and keeps plain
+argument validation on built-in exceptions.
+
+Use these module exceptions when handling public Flux APIs:
+- `MissingStoreError` — no usable store is configured or a named store is missing
+- `MissingQueueError` — no usable queue is configured or a named queue is missing
+- `HookResolutionError` — the target hook cannot be resolved for the plugin
+- `TaskRegistrationError` — store or queue registration conflicts or backend type mismatches
+- `TaskResolutionError` — a referenced task or parent task cannot be resolved
+
+All Flux module exceptions expose a `context` dict for targeted diagnostics in tests and logs.
+
 ## Mental Model
 
 - The store is the source of truth for workflow state.

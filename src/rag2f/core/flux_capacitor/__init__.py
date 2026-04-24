@@ -5,6 +5,8 @@ from rag2f.core.flux_capacitor.errors import (
     HookResolutionError,
     MissingQueueError,
     MissingStoreError,
+    TaskRegistrationError,
+    TaskResolutionError,
 )
 from rag2f.core.flux_capacitor.flux_capacitor import FluxCapacitor, TaskManager
 from rag2f.core.flux_capacitor.queue import BaseTaskQueue, InMemoryTaskQueue
@@ -35,6 +37,8 @@ __all__ = [
     "TaskChildRequest",
     "TaskContext",
     "TaskEnvelope",
+    "TaskRegistrationError",
+    "TaskResolutionError",
     "TaskStatusView",
     "TaskManager",
 ]
