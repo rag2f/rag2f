@@ -28,7 +28,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pre-commit==4.5.1",
-    "ruff==0.14.11",
+    "ruff==0.15.11",
     "pytest",
     "pytest-asyncio",
     "rich",
