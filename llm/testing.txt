@@ -100,6 +100,9 @@ async def test_plugin_integration(rag2f_with_mock_plugins):
 ### 3b. FluxCapacitor-backed Plugin Tests
 
 When a plugin uses FluxCapacitor, keep the test deterministic with in-memory backends.
+`InMemoryTaskQueue` supports a visibility timeout and stale reservation reclaim, so
+retry/recovery tests can use a short timeout and call `queue.reclaim_expired(now=...)`
+instead of sleeping.
 
 ```python
 from rag2f.core.flux_capacitor import InMemoryTaskQueue, InMemoryTaskStore

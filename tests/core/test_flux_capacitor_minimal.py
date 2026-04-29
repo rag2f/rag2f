@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -10,6 +11,7 @@ from rag2f.core.flux_capacitor import (
     HookResolutionError,
     InMemoryTaskQueue,
     InMemoryTaskStore,
+    TaskEnvelope,
     TaskRegistrationError,
     TaskResolutionError,
 )
@@ -159,6 +161,70 @@ def test_flux_capacitor_retry_preserves_task_identity(rag2f) -> None:
     task = store.get_task(task_id)
     assert task is not None
     assert task.root_id == task_id
+    assert task.attempts == 2
+
+
+def test_inmemory_queue_reclaims_expired_reservation() -> None:
+    queue = InMemoryTaskQueue(visibility_timeout=timedelta(seconds=10))
+    queue.publish(
+        TaskEnvelope(
+            task_id="task-1",
+            root_id="task-1",
+            parent_id=None,
+            plugin_id="flux_plugin",
+            hook="flux_child_hook",
+        )
+    )
+
+    first_reservation = queue.reserve(worker_id="worker-a")
+    assert first_reservation is not None
+    assert first_reservation.reservation_ref is not None
+    assert queue.pending_task_ids() == set()
+    assert queue.reserved_task_ids() == {"task-1"}
+
+    reclaimed = queue.reclaim_expired(now=datetime.now(UTC) + timedelta(seconds=11))
+
+    assert [envelope.task_id for envelope in reclaimed] == ["task-1"]
+    assert reclaimed[0].reservation_ref is None
+    assert queue.pending_task_ids() == {"task-1"}
+    assert queue.reserved_task_ids() == set()
+
+    second_reservation = queue.reserve(worker_id="worker-b")
+    assert second_reservation is not None
+    assert second_reservation.task_id == "task-1"
+    assert second_reservation.reservation_ref != first_reservation.reservation_ref
+
+
+def test_flux_capacitor_can_reserve_reclaimed_inmemory_task(rag2f) -> None:
+    flux = rag2f.task_manager
+    store = InMemoryTaskStore()
+    queue = InMemoryTaskQueue(visibility_timeout=timedelta(seconds=10))
+    flux.register_store("reclaim_memory", store)
+    flux.register_queue("reclaim_memory", queue)
+    flux.set_default_store("reclaim_memory")
+    flux.set_default_queue("reclaim_memory")
+
+    task_id = flux.enqueue(
+        plugin_id="flux_plugin",
+        hook="flux_child_hook",
+        payload_ref={"repository": "repo", "id": "reclaim-1"},
+    )
+
+    first_reservation = flux.reserve(worker_id="worker-a")
+    assert first_reservation is not None
+    assert first_reservation.task_id == task_id
+
+    queue.reclaim_expired(now=datetime.now(UTC) + timedelta(seconds=11))
+    second_reservation = flux.reserve(worker_id="worker-b")
+
+    assert second_reservation is not None
+    assert second_reservation.task_id == task_id
+    assert second_reservation.reservation_ref != first_reservation.reservation_ref
+
+    task = store.get_task(task_id)
+    assert task is not None
+    assert task.status == "reserved"
+    assert task.worker_id == "worker-b"
     assert task.attempts == 2
 
 

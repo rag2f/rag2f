@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from rag2f.core.flux_capacitor.task_models import (
     TaskBackendCapabilities,
@@ -20,6 +20,16 @@ class _QueuedTask:
     """Internal queue entry for in-memory delivery."""
 
     envelope: TaskEnvelope
+
+
+@dataclass(slots=True)
+class _Reservation:
+    """Internal reservation metadata for in-memory delivery."""
+
+    envelope: TaskEnvelope
+    worker_id: str
+    reserved_at: datetime
+    expires_at: datetime | None
 
 
 class BaseTaskQueue(ABC):
@@ -49,6 +59,10 @@ class BaseTaskQueue(ABC):
     @abstractmethod
     def release(self, reservation_ref: str, *, retry_at: datetime | None = None) -> None:
         """Release a reservation back to the queue."""
+
+    def reclaim_expired(self, *, now: datetime | None = None) -> list[TaskEnvelope]:
+        """Requeue expired reservations and return the reclaimed envelopes."""
+        return []
 
     def pending_task_ids(self) -> set[str]:
         """Return pending task ids if supported by the backend."""
@@ -86,18 +100,21 @@ class BaseTaskQueue(ABC):
 class InMemoryTaskQueue(BaseTaskQueue):
     """Simple FIFO queue stored in memory."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, visibility_timeout: timedelta | None = timedelta(minutes=5)) -> None:
+        if visibility_timeout is not None and visibility_timeout < timedelta(0):
+            raise ValueError("visibility_timeout must be non-negative")
         self._queue: deque[_QueuedTask] = deque()
-        self._reservations: dict[str, TaskEnvelope] = {}
+        self._reservations: dict[str, _Reservation] = {}
+        self._visibility_timeout = visibility_timeout
 
     @property
     def capabilities(self) -> TaskBackendCapabilities:
         return TaskBackendCapabilities(
             supports_ack=True,
             supports_delay=True,
-            supports_reclaim=True,
+            supports_reclaim=self._visibility_timeout is not None,
             supports_ordering=True,
-            supports_visibility_timeout=False,
+            supports_visibility_timeout=self._visibility_timeout is not None,
         )
 
     def publish(self, envelope: TaskEnvelope) -> str | None:
@@ -106,13 +123,14 @@ class InMemoryTaskQueue(BaseTaskQueue):
             envelope,
             queue_ref=queue_ref,
             reservation_ref=None,
-            available_at=envelope.available_at or datetime.now(UTC),
+            available_at=_normalize_datetime(envelope.available_at) or datetime.now(UTC),
         )
         self._queue.append(_QueuedTask(envelope=queued_envelope))
         return queue_ref
 
     def reserve(self, *, worker_id: str) -> TaskEnvelope | None:
         now = datetime.now(UTC)
+        self.reclaim_expired(now=now)
         for _ in range(len(self._queue)):
             queued_task = self._queue.popleft()
             available_at = queued_task.envelope.available_at or now
@@ -123,7 +141,12 @@ class InMemoryTaskQueue(BaseTaskQueue):
                     reservation_ref=reservation_ref,
                     available_at=None,
                 )
-                self._reservations[reservation_ref] = reserved
+                self._reservations[reservation_ref] = _Reservation(
+                    envelope=reserved,
+                    worker_id=worker_id,
+                    reserved_at=now,
+                    expires_at=self._reservation_expires_at(now),
+                )
                 return reserved
             self._queue.append(queued_task)
         return None
@@ -137,14 +160,51 @@ class InMemoryTaskQueue(BaseTaskQueue):
         if reserved is None:
             return
         released = replace(
-            reserved,
+            reserved.envelope,
             reservation_ref=None,
-            available_at=retry_at or datetime.now(UTC),
+            available_at=_normalize_datetime(retry_at) or datetime.now(UTC),
         )
         self._queue.append(_QueuedTask(envelope=released))
 
+    def reclaim_expired(self, *, now: datetime | None = None) -> list[TaskEnvelope]:
+        if self._visibility_timeout is None:
+            return []
+
+        effective_now = _normalize_datetime(now) or datetime.now(UTC)
+        expired_refs = [
+            reservation_ref
+            for reservation_ref, reservation in self._reservations.items()
+            if reservation.expires_at is not None and reservation.expires_at <= effective_now
+        ]
+        reclaimed: list[TaskEnvelope] = []
+        for reservation_ref in expired_refs:
+            reservation = self._reservations.pop(reservation_ref)
+            envelope = replace(
+                reservation.envelope,
+                reservation_ref=None,
+                available_at=None,
+            )
+            self._queue.append(_QueuedTask(envelope=envelope))
+            reclaimed.append(envelope)
+        return reclaimed
+
     def pending_task_ids(self) -> set[str]:
+        self.reclaim_expired()
         return {queued_task.envelope.task_id for queued_task in self._queue}
 
     def reserved_task_ids(self) -> set[str]:
-        return {envelope.task_id for envelope in self._reservations.values()}
+        self.reclaim_expired()
+        return {reservation.envelope.task_id for reservation in self._reservations.values()}
+
+    def _reservation_expires_at(self, reserved_at: datetime) -> datetime | None:
+        if self._visibility_timeout is None:
+            return None
+        return reserved_at + self._visibility_timeout
+
+
+def _normalize_datetime(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)

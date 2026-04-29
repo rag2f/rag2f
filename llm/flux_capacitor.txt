@@ -30,6 +30,19 @@ Public operations:
 - `retry()` — mark retry and requeue the same logical task id
 - `get_status()` — inspect one task or the whole descendant tree
 
+Queue backends implement `BaseTaskQueue`:
+- `publish()` / `publish_many()` add envelopes for delivery
+- `reserve()` returns one available envelope with a `reservation_ref`
+- `ack()` removes a completed reservation
+- `release()` requeues a reservation, optionally delayed by `retry_at`
+- `reclaim_expired()` requeues stale reservations when the backend supports it
+- `pending_task_ids()` and `reserved_task_ids()` expose delivery state for recovery checks
+
+`InMemoryTaskQueue` is suitable for tests and local execution. It supports ack, delay,
+ordering, and reservation reclaim through a configurable visibility timeout. By default,
+reservations expire after five minutes; pass `visibility_timeout=None` only when a test or
+special local scenario explicitly needs no automatic reclaim.
+
 ## Error Model
 
 FluxCapacitor uses module-specific exceptions for orchestration failures and keeps plain
@@ -140,6 +153,9 @@ rag2f.task_manager.register_queue("test_memory", queue)
 rag2f.task_manager.set_default_store("test_memory")
 rag2f.task_manager.set_default_queue("test_memory")
 ```
+
+For retry/recovery tests, use a short visibility timeout and call
+`queue.reclaim_expired(now=...)` to make stale reservations deterministic without sleeping.
 
 Then assert:
 - root task id exists
