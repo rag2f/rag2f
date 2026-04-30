@@ -15,9 +15,11 @@ import logging
 from typing import Any
 
 from rag2f.core.dto.indiana_jones_dto import (
+    MultiStepSearchResult,
     RetrieveResult,
     ReturnMode,
     SearchResult,
+    SubQuestionResult,
 )
 from rag2f.core.dto.result_dto import StatusCode, StatusDetail
 from rag2f.core.indiana_jones.exceptions import (
@@ -215,6 +217,139 @@ class IndianaJones:
                 logger,
                 "indiana_jones_search_complete",
                 response_length=len(result.response),
+                used_source_count=len(result.used_source_ids),
+                returned_items=result.items is not None,
+            )
+            return result
+
+    def execute_multi_step_search(
+        self,
+        query: str,
+        k: int = 10,
+        return_mode: ReturnMode = ReturnMode.MINIMAL,
+        **kwargs: Any,
+    ) -> MultiStepSearchResult:
+        """Plan sub-questions, retrieve per sub-question, synthesize final answer.
+
+        Pipeline:
+        1. Hook ``indiana_jones_plan_subquestions``: decompose query into sub-questions.
+        2. For each sub-question: call ``execute_retrieve()``.
+        3. Hook ``indiana_jones_multi_step_synthesize``: combine evidence into final answer.
+
+        [Result Pattern] Check result.is_ok() before using fields.
+
+        Args:
+            query: The compound query to decompose and answer.
+            k: Maximum items to retrieve per sub-question.
+            return_mode: Controls whether items are included in the result.
+            **kwargs: Backend-specific parameters forwarded to retrieve hooks.
+
+        Returns:
+            MultiStepSearchResult with status="success" on success, or
+            status="error" with detail for expected failures:
+            - StatusCode.EMPTY: Query is empty or whitespace-only.
+
+        Raises:
+            RetrievalError: Only for system errors (backend crash, timeout).
+        """
+        with observation_scope(operation="indiana_jones.execute_multi_step_search"):
+            query_length = len(query) if query is not None else 0
+            debug_event(
+                logger,
+                "indiana_jones_multi_step_search_start",
+                query_length=query_length,
+                k=k,
+                return_mode=return_mode.value,
+                kwargs_count=len(kwargs),
+            )
+
+            if query is None or not str(query).strip():
+                debug_event(logger, "indiana_jones_multi_step_search_empty")
+                return MultiStepSearchResult.fail(
+                    StatusDetail(code=StatusCode.EMPTY, message="Query is empty")
+                )
+
+            try:
+                # Step 1: plan sub-questions (default: treat full query as single sub-question)
+                sub_questions: list[str] = [query]
+                if self.rag2f:
+                    sub_questions = self.rag2f.morpheus.execute_hook(
+                        "indiana_jones_plan_subquestions",
+                        sub_questions,
+                        query,
+                        k,
+                        rag2f=self.rag2f,
+                    )
+
+                debug_event(
+                    logger,
+                    "indiana_jones_multi_step_planned",
+                    sub_question_count=len(sub_questions),
+                )
+
+                # Step 2: retrieve for each sub-question
+                sub_question_results: list[SubQuestionResult] = []
+                for sub_q in sub_questions:
+                    retrieve_result = self.execute_retrieve(
+                        sub_q, k, return_mode=ReturnMode.WITH_ITEMS, for_synthesize=True, **kwargs
+                    )
+                    sub_question_results.append(
+                        SubQuestionResult(sub_question=sub_q, retrieve_result=retrieve_result)
+                    )
+
+                debug_event(
+                    logger,
+                    "indiana_jones_multi_step_retrieved",
+                    sub_question_count=len(sub_question_results),
+                )
+
+                # Step 3: synthesize final answer across all sub-question results
+                result = MultiStepSearchResult.success(
+                    query=query,
+                    sub_question_results=sub_question_results,
+                )
+                if self.rag2f:
+                    result = self.rag2f.morpheus.execute_hook(
+                        "indiana_jones_multi_step_synthesize",
+                        result,
+                        sub_question_results,
+                        return_mode,
+                        kwargs,
+                        rag2f=self.rag2f,
+                    )
+
+                if return_mode == ReturnMode.WITH_ITEMS:
+                    all_items = [
+                        item
+                        for sqr in sub_question_results
+                        if sqr.retrieve_result.is_ok()
+                        for item in sqr.retrieve_result.items
+                    ]
+                    result.items = all_items or None
+                else:
+                    result.items = None
+
+            except RetrievalError:
+                raise
+            except Exception as e:
+                exception_event(
+                    logger,
+                    "indiana_jones_multi_step_search_failed",
+                    query_length=query_length,
+                    k=k,
+                    return_mode=return_mode.value,
+                    error_type=type(e).__name__,
+                )
+                raise RetrievalError(
+                    f"Multi-step search failed: {e}",
+                    context={"query": query, "k": k, "kwargs": kwargs},
+                ) from e
+
+            debug_event(
+                logger,
+                "indiana_jones_multi_step_search_complete",
+                response_length=len(result.response),
+                sub_question_count=len(result.sub_question_results),
                 used_source_count=len(result.used_source_ids),
                 returned_items=result.items is not None,
             )

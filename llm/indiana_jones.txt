@@ -213,7 +213,120 @@ if result.is_error():
             print("No relevant documents found")
 ```
 
-## Exception: RetrievalError
+---
+
+## 4.01 Multi-Step RAG — `execute_multi_step_search()`
+
+Decomposes a compound query into independent sub-questions, retrieves context for each,
+and synthesizes a final answer. Use before multi-hop techniques.
+
+### Pipeline
+
+```
+execute_multi_step_search()
+        │
+        ▼
+hook: indiana_jones_plan_subquestions   →  list[str]
+        │
+        ▼  (per sub-question)
+execute_retrieve()  →  SubQuestionResult
+        │
+        ▼
+hook: indiana_jones_multi_step_synthesize  →  MultiStepSearchResult
+```
+
+### Method signature
+
+```python
+result = indiana_jones.execute_multi_step_search(
+    query: str,
+    k: int = 10,
+    *,
+    return_mode: ReturnMode = ReturnMode.MINIMAL,
+) -> MultiStepSearchResult
+```
+
+### New DTOs
+
+```python
+class SubQuestionResult(BaseModel):
+    sub_question: str
+    retrieve_result: RetrieveResult
+
+class MultiStepSearchResult(BaseResult):
+    query: str
+    response: str
+    used_source_ids: list[str]
+    sub_question_results: list[SubQuestionResult]
+    items: list[RetrievedItem] | None  # populated only with ReturnMode.WITH_ITEMS
+    extra: dict[str, Any]
+```
+
+### Hook: `indiana_jones_plan_subquestions`
+
+```python
+@hook("indiana_jones_plan_subquestions", priority=10)
+def my_planner(
+    sub_questions: list[str],  # initially [query]
+    query: str,
+    k: int,
+    *,
+    rag2f,
+) -> list[str]:
+    """Decompose compound query into independent sub-questions."""
+    # use an LLM via rag2f.a_team to plan
+    return ["sub-q1", "sub-q2", ...]
+```
+
+Default (no hook): returns `[query]` — single-step fallback.
+
+### Hook: `indiana_jones_multi_step_synthesize`
+
+```python
+@hook("indiana_jones_multi_step_synthesize", priority=10)
+def my_synthesizer(
+    result: MultiStepSearchResult,
+    sub_question_results: list[SubQuestionResult],
+    return_mode: ReturnMode,
+    kwargs: dict,
+    *,
+    rag2f,
+) -> MultiStepSearchResult:
+    """Synthesize final answer from all sub-question evidence."""
+    context_parts = []
+    all_ids = []
+    for sqr in sub_question_results:
+        if sqr.retrieve_result.is_ok():
+            context_parts.append(
+                f"Sub-question: {sqr.sub_question}\n"
+                + "\n".join(i.text for i in sqr.retrieve_result.items)
+            )
+            all_ids.extend(i.id for i in sqr.retrieve_result.items)
+    context = "\n\n".join(context_parts)
+    result.response = my_llm.generate(
+        f"Answer using context:\n{context}\n\nOriginal question: {result.query}"
+    )
+    result.used_source_ids = list(dict.fromkeys(all_ids))
+    return result
+```
+
+### Usage example
+
+```python
+result = rag2f.indiana_jones.execute_multi_step_search(
+    "What is authentication and how does RBAC work?",
+    k=5,
+    return_mode=ReturnMode.WITH_ITEMS,
+)
+
+if result.is_ok():
+    print(result.response)
+    for sqr in result.sub_question_results:
+        print(f"  [{sqr.sub_question}] → {len(sqr.retrieve_result.items)} items")
+else:
+    print(f"Error: {result.detail.message}")
+```
+
 
 System errors (not expected states) raise `RetrievalError`:
 
