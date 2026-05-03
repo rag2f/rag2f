@@ -50,24 +50,16 @@ RAG2F_TASK_DEFAULT_HOOK_KEY = "task_default_hook"
 class FluxCapacitorConfig:
     """Configuration values read from Spock."""
 
-    default_store: str | None = None
-    default_queue: str | None = None
     default_hook: str | None = None
 
     @classmethod
     def from_spock(cls, spock: Any | None) -> FluxCapacitorConfig:
         if spock is None:
             return cls()
-        store = spock.get_rag2f_config(RAG2F_TASK_STORE_DEFAULT_KEY)
-        queue = spock.get_rag2f_config(RAG2F_TASK_QUEUE_DEFAULT_KEY)
         default_hook = spock.get_rag2f_config(RAG2F_TASK_DEFAULT_HOOK_KEY)
-        if isinstance(store, str):
-            store = store.strip() or None
-        if isinstance(queue, str):
-            queue = queue.strip() or None
         if isinstance(default_hook, str):
             default_hook = default_hook.strip() or None
-        return cls(default_store=store, default_queue=queue, default_hook=default_hook)
+        return cls(default_hook=default_hook)
 
 
 class FluxCapacitor:
@@ -85,8 +77,6 @@ class FluxCapacitor:
         self._payload_loader = payload_loader
         self._stores: dict[str, BaseTaskStore] = {}
         self._queues: dict[str, BaseTaskQueue] = {}
-        self._default_store_name: str | None = None
-        self._default_queue_name: str | None = None
         self._config = FluxCapacitorConfig.from_spock(self._spock)
         debug_event(
             logger,
@@ -120,8 +110,6 @@ class FluxCapacitor:
     def unregister_store(self, name: str) -> bool:
         if name in self._stores:
             del self._stores[name]
-            if self._default_store_name == name:
-                self._default_store_name = None
             debug_event(logger, "flux_store_unregistered", store_name=name)
             return True
         return False
@@ -148,27 +136,9 @@ class FluxCapacitor:
     def unregister_queue(self, name: str) -> bool:
         if name in self._queues:
             del self._queues[name]
-            if self._default_queue_name == name:
-                self._default_queue_name = None
             debug_event(logger, "flux_queue_unregistered", queue_name=name)
             return True
         return False
-
-    def set_default_store(self, name: str) -> None:
-        if name not in self._stores:
-            raise MissingStoreError(
-                f"Store '{name}' not registered",
-                context={"store_name": name},
-            )
-        self._default_store_name = name
-
-    def set_default_queue(self, name: str) -> None:
-        if name not in self._queues:
-            raise MissingQueueError(
-                f"Queue '{name}' not registered",
-                context={"queue_name": name},
-            )
-        self._default_queue_name = name
 
     def get_store(self, name: str | None = None) -> BaseTaskStore:
         store_name = name or self._resolve_default_store_name()
@@ -189,22 +159,29 @@ class FluxCapacitor:
         return self._queues[queue_name]
 
     def _resolve_default_store_name(self) -> str | None:
-        if self._default_store_name:
-            return self._default_store_name
-        if self._config.default_store:
-            return self._config.default_store
+        configured = self._resolve_config_key(RAG2F_TASK_STORE_DEFAULT_KEY)
+        if configured:
+            return configured
         if len(self._stores) == 1:
             return next(iter(self._stores.keys()))
         return None
 
     def _resolve_default_queue_name(self) -> str | None:
-        if self._default_queue_name:
-            return self._default_queue_name
-        if self._config.default_queue:
-            return self._config.default_queue
+        configured = self._resolve_config_key(RAG2F_TASK_QUEUE_DEFAULT_KEY)
+        if configured:
+            return configured
         if len(self._queues) == 1:
             return next(iter(self._queues.keys()))
         return None
+
+    def _resolve_config_key(self, key: str) -> str | None:
+        if self._spock is None:
+            return None
+
+        value = self._spock.get_rag2f_config(key)
+        if isinstance(value, str):
+            value = value.strip()
+        return value or None
 
     # ------------------------------------------------------------------
     # Task operations

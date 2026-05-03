@@ -17,20 +17,22 @@ from rag2f.core.flux_capacitor import (
 )
 
 
-def _configure_test_backend(flux, *, name: str) -> tuple[InMemoryTaskStore, InMemoryTaskQueue]:
+def _configure_test_backend(
+    rag2f, flux, *, name: str
+) -> tuple[InMemoryTaskStore, InMemoryTaskQueue]:
     store = InMemoryTaskStore()
     queue = InMemoryTaskQueue()
     flux.register_store(name, store)
     flux.register_queue(name, queue)
-    flux.set_default_store(name)
-    flux.set_default_queue(name)
+    rag2f.spock.set_rag2f_config("task_store_default", name)
+    rag2f.spock.set_rag2f_config("task_queue_default", name)
     return store, queue
 
 
 def test_flux_capacitor_runs_task_tree(rag2f) -> None:
     flux = rag2f.task_manager
 
-    store, _queue = _configure_test_backend(flux, name="test_memory")
+    store, _queue = _configure_test_backend(rag2f, flux, name="test_memory")
 
     hooks_module = importlib.import_module("plugins.flux_plugin.flux_hooks")
     hooks_module.EXECUTION_LOG.clear()
@@ -61,7 +63,7 @@ def test_flux_capacitor_runs_task_tree(rag2f) -> None:
 
 def test_flux_capacitor_reports_tree_status_during_nested_workflow(rag2f) -> None:
     flux = rag2f.task_manager
-    store, _queue = _configure_test_backend(flux, name="status_memory")
+    store, _queue = _configure_test_backend(rag2f, flux, name="status_memory")
 
     hooks_module = importlib.import_module("plugins.flux_plugin.flux_hooks")
     hooks_module.EXECUTION_LOG.clear()
@@ -128,7 +130,7 @@ def test_flux_capacitor_reports_tree_status_during_nested_workflow(rag2f) -> Non
 
 def test_flux_capacitor_retry_preserves_task_identity(rag2f) -> None:
     flux = rag2f.task_manager
-    store, _queue = _configure_test_backend(flux, name="retry_memory")
+    store, _queue = _configure_test_backend(rag2f, flux, name="retry_memory")
 
     task_id = flux.enqueue(
         plugin_id="flux_plugin",
@@ -201,8 +203,8 @@ def test_flux_capacitor_can_reserve_reclaimed_inmemory_task(rag2f) -> None:
     queue = InMemoryTaskQueue(visibility_timeout=timedelta(seconds=10))
     flux.register_store("reclaim_memory", store)
     flux.register_queue("reclaim_memory", queue)
-    flux.set_default_store("reclaim_memory")
-    flux.set_default_queue("reclaim_memory")
+    rag2f.spock.set_rag2f_config("task_store_default", "reclaim_memory")
+    rag2f.spock.set_rag2f_config("task_queue_default", "reclaim_memory")
 
     task_id = flux.enqueue(
         plugin_id="flux_plugin",
@@ -241,7 +243,7 @@ def test_flux_capacitor_duplicate_store_registration_raises_module_error(rag2f) 
 
 def test_flux_capacitor_missing_parent_raises_task_resolution_error(rag2f) -> None:
     flux = rag2f.task_manager
-    _configure_test_backend(flux, name="missing_parent_memory")
+    _configure_test_backend(rag2f, flux, name="missing_parent_memory")
 
     with pytest.raises(
         TaskResolutionError, match="Parent task 'missing-parent' not found"
@@ -259,7 +261,7 @@ def test_flux_capacitor_missing_parent_raises_task_resolution_error(rag2f) -> No
 
 def test_flux_capacitor_retry_unknown_task_raises_task_resolution_error(rag2f) -> None:
     flux = rag2f.task_manager
-    _configure_test_backend(flux, name="missing_task_memory")
+    _configure_test_backend(rag2f, flux, name="missing_task_memory")
 
     with pytest.raises(TaskResolutionError, match="Unknown task: missing-task") as exc_info:
         flux.retry("missing-task", error_msg="temporary failure")
@@ -269,7 +271,7 @@ def test_flux_capacitor_retry_unknown_task_raises_task_resolution_error(rag2f) -
 
 def test_flux_capacitor_missing_hook_exposes_resolution_context(rag2f) -> None:
     flux = rag2f.task_manager
-    _configure_test_backend(flux, name="missing_hook_memory")
+    _configure_test_backend(rag2f, flux, name="missing_hook_memory")
 
     with pytest.raises(HookResolutionError, match="Hook 'missing_hook' not found") as exc_info:
         flux.enqueue(
@@ -282,3 +284,29 @@ def test_flux_capacitor_missing_hook_exposes_resolution_context(rag2f) -> None:
         "plugin_id": "flux_plugin",
         "hook_name": "missing_hook",
     }
+
+
+def test_flux_capacitor_reads_store_and_queue_defaults_from_live_spock(rag2f) -> None:
+    flux = rag2f.task_manager
+
+    primary_store = InMemoryTaskStore()
+    primary_queue = InMemoryTaskQueue()
+    secondary_store = InMemoryTaskStore()
+    secondary_queue = InMemoryTaskQueue()
+
+    flux.register_store("spock_primary", primary_store)
+    flux.register_queue("spock_primary", primary_queue)
+    flux.register_store("spock_secondary", secondary_store)
+    flux.register_queue("spock_secondary", secondary_queue)
+
+    rag2f.spock.set_rag2f_config("task_store_default", "spock_primary")
+    rag2f.spock.set_rag2f_config("task_queue_default", "spock_primary")
+
+    assert flux.get_store() is primary_store
+    assert flux.get_queue() is primary_queue
+
+    rag2f.spock.set_rag2f_config("task_store_default", "spock_secondary")
+    rag2f.spock.set_rag2f_config("task_queue_default", "spock_secondary")
+
+    assert flux.get_store() is secondary_store
+    assert flux.get_queue() is secondary_queue

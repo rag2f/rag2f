@@ -17,8 +17,6 @@ def activated(plugin, rag2f_instance: RAG2F):
         manager.register_store("memory", InMemoryTaskStore())
     with suppress(ValueError):
         manager.register_queue("memory", InMemoryTaskQueue())
-    manager.set_default_store("memory")
-    manager.set_default_queue("memory")
 
 
 @plugin

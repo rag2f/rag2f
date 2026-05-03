@@ -46,7 +46,6 @@ class ATeam:
         """Initialize the agent manager."""
         self._rag2f_instance = rag2f_instance
         self._registry: dict[str, AgentEntry] = {}
-        self._plugin_defaults: dict[str, str] = {}
         self._spock = spock
         logger.debug("ATeam instance created.")
 
@@ -58,7 +57,6 @@ class ATeam:
         plugin_id: str,
         raw: Any = None,
         metadata: dict[str, Any] | None = None,
-        is_default: bool = False,
     ) -> None:
         """Register an agent adapter with ownership metadata."""
         if not isinstance(key, str) or not key.strip():
@@ -103,19 +101,6 @@ class ATeam:
         )
         self._registry[key] = entry
 
-        if is_default:
-            current_default = self._plugin_defaults.get(plugin_id)
-            if current_default is not None and current_default != key:
-                raise AgentRegistrationError(
-                    f"Plugin '{plugin_id}' already has default agent '{current_default}'.",
-                    context={
-                        "key": key,
-                        "plugin_id": plugin_id,
-                        "current_default": current_default,
-                    },
-                )
-            self._plugin_defaults[plugin_id] = key
-
         logger.debug("Agent '%s' registered for plugin '%s'.", key, plugin_id)
 
     def get(self, key: str) -> AgentAdapter | None:
@@ -154,8 +139,6 @@ class ATeam:
             return False
 
         del self._registry[key]
-        if self._plugin_defaults.get(entry.plugin_id) == key:
-            del self._plugin_defaults[entry.plugin_id]
         logger.debug("Agent '%s' unregistered.", key)
         return True
 
@@ -264,15 +247,19 @@ class ATeam:
             if plugin_value:
                 return plugin_value
 
-        global_value = self._resolve_global_default()
-        if global_value:
-            return global_value
+            global_value = self._resolve_global_default(allow_singleton_fallback=False)
+            if global_value:
+                return global_value
 
-        if plugin_id:
             raise AgentResolutionError(
                 f"No default agent configured for plugin '{plugin_id}' and no global default set.",
                 context={"plugin_id": plugin_id},
             )
+
+        global_value = self._resolve_global_default()
+        if global_value:
+            return global_value
+
         raise AgentResolutionError(
             "No default agent configured. Set 'plugins.<plugin_id>.default_agent' or 'rag2f.a_team_default'.",
             context={},
@@ -285,16 +272,21 @@ class ATeam:
         if isinstance(configured, str) and configured.strip():
             return configured.strip()
 
-        fallback = self._plugin_defaults.get(plugin_id)
-        return fallback.strip() if isinstance(fallback, str) and fallback.strip() else None
+        candidates = [
+            entry.key for entry in self._registry.values() if entry.plugin_id == plugin_id
+        ]
+        if len(candidates) == 1:
+            return candidates[0]
+        return None
 
-    def _resolve_global_default(self) -> str | None:
-        if self._spock is None:
-            return None
+    def _resolve_global_default(self, *, allow_singleton_fallback: bool = True) -> str | None:
+        if self._spock is not None:
+            value = self._spock.get_rag2f_config("a_team_default")
+            if isinstance(value, str) and value.strip():
+                return value.strip()
 
-        value = self._spock.get_rag2f_config("a_team_default")
-        if isinstance(value, str) and value.strip():
-            return value.strip()
+        if allow_singleton_fallback and len(self._registry) == 1:
+            return next(iter(self._registry.keys()))
         return None
 
     def _resolve_prompt(self, *, request: AgentRunRequest, entry: AgentEntry) -> ResolvedPrompt:

@@ -57,7 +57,6 @@ def activated(plugin, rag2f_instance):
         AlphaAgentAdapter(),
         plugin_id=plugin.id,
         metadata={"registered_by": plugin.id},
-        is_default=True,
     )
 
 
