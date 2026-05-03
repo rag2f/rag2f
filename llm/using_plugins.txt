@@ -301,7 +301,6 @@ if result.is_ok() and result.repository:
       f"{plugin.id}.writer",
       adapter,
       plugin_id=plugin.id,
-      is_default=True,
     )
 
 

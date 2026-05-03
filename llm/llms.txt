@@ -204,7 +204,6 @@ rag2f.a_team.register(
     "writer_plugin.writer",
     adapter,
     plugin_id="writer_plugin",
-    is_default=True,
 )
 
 # Get a plugin default agent

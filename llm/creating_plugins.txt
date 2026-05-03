@@ -113,7 +113,6 @@ def activated(plugin, rag2f_instance):
         f"{plugin_id}.writer",
         writer,
         plugin_id=plugin_id,
-        is_default=True,
     )
 
 @plugin
@@ -248,8 +247,10 @@ def activated(plugin, rag2f_instance):
         f"{plugin.id}.writer",
         writer,
         plugin_id=plugin.id,
-        is_default=True,
     )
+
+    # If multiple agents are registered for the same plugin, configure the default via Spock.
+    # rag2f_instance.spock.set_plugin_config(plugin.id, "default_agent", f"{plugin.id}.writer")
 ```
 
 If prompt logic belongs to the plugin, implement hooks:

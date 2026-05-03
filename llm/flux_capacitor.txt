@@ -150,8 +150,8 @@ store = InMemoryTaskStore()
 queue = InMemoryTaskQueue()
 rag2f.task_manager.register_store("test_memory", store)
 rag2f.task_manager.register_queue("test_memory", queue)
-rag2f.task_manager.set_default_store("test_memory")
-rag2f.task_manager.set_default_queue("test_memory")
+rag2f.spock.set_rag2f_config("task_store_default", "test_memory")
+rag2f.spock.set_rag2f_config("task_queue_default", "test_memory")
 ```
 
 For retry/recovery tests, use a short visibility timeout and call

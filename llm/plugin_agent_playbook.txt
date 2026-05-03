@@ -68,7 +68,7 @@ Contract:
 Use when the plugin provides one or more LLM agents.
 
 Registration target:
-- `rag2f_instance.a_team.register(key, adapter, plugin_id=..., is_default=...)`
+- `rag2f_instance.a_team.register(key, adapter, plugin_id=...)`
 
 Where to register:
 - `activated()`
@@ -144,8 +144,10 @@ def activated(plugin, rag2f_instance):
         f"{plugin_id}.default",
         adapter,
         plugin_id=plugin_id,
-        is_default=True,
     )
+
+    # If the plugin owns multiple agents, set the default through Spock config:
+    # rag2f_instance.spock.set_plugin_config(plugin_id, "default_agent", f"{plugin_id}.default")
 
 
 @plugin

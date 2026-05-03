@@ -40,7 +40,7 @@ When implementing an agent plugin, keep this separation strict:
 ### Manager methods
 
 ```python
-rag2f.a_team.register(key, adapter, plugin_id=..., raw=None, metadata=None, is_default=False)
+rag2f.a_team.register(key, adapter, plugin_id=..., raw=None, metadata=None)
 rag2f.a_team.get(key)
 rag2f.a_team.get_raw(key)
 rag2f.a_team.get_default(plugin_id=None)
@@ -134,9 +134,10 @@ ATeam resolves the effective agent in this order:
 
 1. explicit `agent_key` passed to `execute_run(...)`
 2. plugin-scoped default from Spock: `plugins.<plugin_id>.default_agent`
-3. plugin-scoped default registered with `is_default=True`
+3. if exactly one agent is registered for that plugin, use it
 4. global default from Spock: `rag2f.a_team_default`
-5. error
+5. if resolving without `plugin_id` and exactly one agent exists overall, use it
+6. error
 
 Examples:
 
@@ -287,7 +288,6 @@ def activated(plugin, rag2f_instance):
         f"{plugin.id}.writer",
         MyAgentAdapter(writer),
         plugin_id=plugin.id,
-        is_default=True,
     )
     rag2f_instance.a_team.register(
         f"{plugin.id}.reviewer",
@@ -400,7 +400,7 @@ When asked to build an ATeam plugin, follow this checklist:
 2. wrap it in an `AgentAdapter`
 3. register the adapter in `activated()`
 4. pick stable keys: `plugin_id.agent_name`
-5. set one default with `is_default=True` or config
+5. set defaults with Spock config when the plugin exposes multiple agents
 6. add prompt hooks only if prompt logic belongs in the plugin
 7. keep provider SDK details out of the core
 8. test one realistic path with two agents and ordered hooks if prompt composition matters

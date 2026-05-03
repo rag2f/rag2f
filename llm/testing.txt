@@ -113,8 +113,8 @@ def configure_task_backend(rag2f, *, name="test_memory"):
     queue = InMemoryTaskQueue()
     rag2f.task_manager.register_store(name, store)
     rag2f.task_manager.register_queue(name, queue)
-    rag2f.task_manager.set_default_store(name)
-    rag2f.task_manager.set_default_queue(name)
+    rag2f.spock.set_rag2f_config("task_store_default", name)
+    rag2f.spock.set_rag2f_config("task_queue_default", name)
     return store, queue
 
 
